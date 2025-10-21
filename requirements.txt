@@ -1,0 +1,21 @@
+# Paper Searcher Requirements
+# Minimal dependencies for reliable paper searching
+
+# Core dependencies (required)
+requests>=2.31.0
+lxml>=4.9.0
+python-dotenv>=1.0.0
+beautifulsoup4>=4.12.0
+
+# Bibliography parsing and generation (required for downloader)
+bibtexparser>=1.4.0
+rispy>=0.7.0
+
+# Optional dependencies for specific sources
+# Google Scholar (optional - install if using Scholar search)
+# scholarly>=1.7.0
+
+# Sci-Hub (optional - install if using Sci-Hub downloader)
+# scihub>=0.4.0
+
+# Note: arXiv and IEEE use only requests (already included above)
