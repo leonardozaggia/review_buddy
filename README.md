@@ -6,7 +6,9 @@ Search and download academic papers from multiple sources with intelligent fallb
 
 - **5 Search Sources**: Scopus, PubMed, arXiv, Google Scholar, IEEE Xplore
 - **Smart Deduplication**: Merges results across sources automatically
-- **Abstract-Based Filtering**: Remove unwanted papers (non-English, animal studies, reviews, etc.)
+- **Abstract-Based Filtering**: Remove unwanted papers with keyword or AI-powered filtering
+- **AI-Powered Filtering**: Use LLMs for intelligent, context-aware filtering (optional)
+  - ⚠️ **FREE TIER LIMIT**: 50 requests/day on free OpenRouter model
 - **10+ Download Methods**: arXiv, bioRxiv, Unpaywall, PMC, publisher patterns, HTML scraping, Crossref, Sci-Hub (optional)
 - **Multiple Formats**: BibTeX, RIS, CSV export
 - **Production Ready**: Comprehensive error handling and logging
@@ -27,11 +29,22 @@ cp .env.example .env
 **3. Run:**
 ```bash
 python 01_fetch_metadata.py     # Search papers
-python 02_abstract_filter.py    # Filter by abstract (optional)
+python 02_abstract_filter.py    # Filter by keywords (optional)
+# OR
+python 02_abstract_filter_AI.py # Filter with AI (optional, requires OpenRouter key)
 python 03_download_papers.py    # Download PDFs
 ```
 
 Results in `results/` folder: `papers.csv`, `references.bib`, `references.ris`, `pdfs/`
+
+## ⚠️ AI Filtering Limitations
+
+**The free OpenRouter model has a 50 requests/day limit.**
+
+- For datasets with **>50 papers**, use keyword filtering (`02_abstract_filter.py`) or upgrade to a paid model
+- Free tier resets daily
+- Paid models available: `anthropic/claude-3-haiku`, `openai/gpt-4o-mini` (see `docs/AI_FILTERING_GUIDE.md`)
+- Keyword filtering has no limits and works for any dataset size
 
 ## Configuration
 
@@ -39,6 +52,9 @@ Results in `results/` folder: `papers.csv`, `references.bib`, `references.ris`, 
 
 **Scopus**: Get from [Elsevier Developer Portal](https://dev.elsevier.com/)  
 **PubMed**: Use any valid email (free, no registration)  
+**OpenRouter** (optional, for AI filtering): Get from [OpenRouter](https://openrouter.ai/keys)  
+  - ⚠️ **FREE TIER LIMITATION**: 50 requests per day limit on `openai/gpt-oss-20b:free` model
+  - For larger datasets (>50 papers), use paid models or keyword filtering
 **IEEE** (optional): Get from [IEEE Developer Portal](https://developer.ieee.org/)
 
 **arXiv and Google Scholar work without keys.**
@@ -47,6 +63,7 @@ Edit `.env`:
 ```bash
 SCOPUS_API_KEY=your_key_here
 PUBMED_EMAIL=your.email@example.com
+OPENROUTER_API_KEY=your_key_here  # Optional, for AI filtering
 UNPAYWALL_EMAIL=your.email@example.com  # Optional, for open access papers
 ```
 
@@ -121,6 +138,7 @@ USE_SCIHUB = False  # Enable Sci-Hub fallback (use responsibly)
 - **[Quick Start](docs/QUICKSTART.md)** - Fast setup guide
 - **[Query Syntax](docs/QUERY_SYNTAX.md)** - Advanced query examples by field
 - **[Abstract Filtering](docs/ABSTRACT_FILTERING.md)** - Filter papers by language, study type, topics
+- **[AI Filtering Guide](docs/AI_FILTERING_GUIDE.md)** - AI-powered filtering with LLMs
 - **[Downloader Guide](docs/DOWNLOADER_GUIDE.md)** - PDF download strategies and troubleshooting
 - **[Deduplication Logic](docs/DEDUPLICATION.md)** - How duplicate papers are merged (prioritizes PubMed)
 - **[Implementation](docs/IMPLEMENTATION_SUMMARY.md)** - Technical architecture details
@@ -145,14 +163,18 @@ USE_SCIHUB = False  # Enable Sci-Hub fallback (use responsibly)
 ```
 review_buddy/
 ├── 01_fetch_metadata.py         # Search papers
-├── 02_abstract_filter.py        # Filter by abstract (optional)
+├── 02_abstract_filter.py        # Filter by keywords (optional)
+├── 02_abstract_filter_AI.py     # Filter with AI (optional)
 ├── 03_download_papers.py        # Download PDFs
+├── compare_filtering_strategies.py  # Compare keyword vs AI filtering
 ├── .env.example                 # Configuration template
 ├── src/
 │   ├── config.py               # Config management
 │   ├── models.py               # Paper data model
 │   ├── paper_searcher.py       # Search coordinator
-│   ├── abstract_filter.py      # Abstract-based filtering
+│   ├── abstract_filter.py      # Keyword-based filtering
+│   ├── ai_abstract_filter.py   # AI-powered filtering
+│   ├── llm_client.py           # OpenRouter API client
 │   └── searchers/              # Source implementations
 │       ├── scopus_searcher.py
 │       ├── pubmed_searcher.py
@@ -163,9 +185,11 @@ review_buddy/
 ├── docs/                        # Documentation
 └── results/                     # Output (auto-created)
     ├── papers.csv
-    ├── papers_filtered.csv     # After filtering
+    ├── papers_filtered.csv     # After keyword filtering
+    ├── papers_filtered_ai.csv  # After AI filtering
     ├── references.bib
-    ├── references_filtered.bib # After filtering
+    ├── references_filtered.bib # After keyword filtering
+    ├── references_filtered_ai.bib  # After AI filtering
     └── pdfs/
 ```
 

@@ -20,3 +20,6 @@ scihub>=0.4.0
 
 # Language detection (optional - for abstract filtering)
 langdetect>=1.0.9
+
+# AI/LLM integration (optional - for AI-powered abstract filtering)
+openai>=1.0.0
