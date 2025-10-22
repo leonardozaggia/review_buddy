@@ -50,7 +50,11 @@ class IEEESearcher:
         """
         papers = []
         
-        logger.info(f"Searching IEEE Xplore with query: {query}")
+        # Normalize query - remove newlines and extra whitespace
+        # This is crucial for queries read from .txt files
+        normalized_query = ' '.join(query.split())
+        
+        logger.info(f"Searching IEEE Xplore with query: {normalized_query}")
         
         # Fetch in batches
         start = 1  # IEEE starts at 1, not 0
@@ -61,7 +65,7 @@ class IEEESearcher:
                 # Build parameters
                 params = {
                     'apikey': self.api_key,
-                    'querytext': query,
+                    'querytext': normalized_query,
                     'max_records': min(batch_size, self.max_results - len(papers)),
                     'start_record': start,
                     'sort_order': 'desc',

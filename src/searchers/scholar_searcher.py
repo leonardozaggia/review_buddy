@@ -53,8 +53,12 @@ class ScholarSearcher:
         """
         papers = []
         
+        # Normalize query - remove newlines and extra whitespace
+        # This is crucial for queries read from .txt files
+        normalized_query = ' '.join(query.split())
+        
         # Build query with year filters
-        scholar_query = query
+        scholar_query = normalized_query
         if year_from or year_to:
             year_from_str = str(year_from or 1900)
             year_to_str = str(year_to or datetime.now().year)

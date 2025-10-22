@@ -52,8 +52,35 @@ class ScopusSearcher:
         """
         papers = []
         
-        # Build query
-        scopus_query = f"TITLE-ABS-KEY({query})"
+        # Normalize query - remove newlines and extra whitespace
+        # This is crucial for queries read from .txt files
+        normalized_query = ' '.join(query.split())
+        
+        # Build query for Scopus
+        # Check if query already contains field codes (TITLE-ABS-KEY, TITLE, etc.)
+        upper_query = normalized_query.upper()
+        has_field_codes = any(code in upper_query for code in ['TITLE-ABS-KEY', 'TITLE(', 'ABS(', 'KEY(', 'AUTH(', 'AFFIL('])
+        
+        if has_field_codes:
+            # Query already has field codes, use as-is
+            scopus_query = normalized_query
+        else:
+            # Simple boolean query without field codes
+            # Remove outer parentheses if the query is wrapped in them
+            stripped_query = normalized_query.strip()
+            if stripped_query.startswith('(') and stripped_query.endswith(')'):
+                # Check if these are the outer wrapping parentheses
+                # by ensuring they match and aren't part of the query structure
+                inner_query = stripped_query[1:-1].strip()
+                scopus_query = f"TITLE-ABS-KEY({inner_query})"
+            else:
+                scopus_query = f"TITLE-ABS-KEY({normalized_query})"
+        
+        # Fix Scopus-specific syntax issues
+        # In Scopus, standalone NOT should be AND NOT
+        # Replace " NOT (" with " AND NOT (" to fix boolean logic
+        scopus_query = scopus_query.replace(' NOT (', ' AND NOT (')
+        scopus_query = scopus_query.replace(' not (', ' AND NOT (')
         
         if year_from:
             scopus_query += f" AND PUBYEAR > {year_from - 1}"

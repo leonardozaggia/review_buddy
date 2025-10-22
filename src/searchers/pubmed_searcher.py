@@ -57,8 +57,12 @@ class PubMedSearcher:
         """
         papers = []
         
+        # Normalize query - remove newlines and extra whitespace
+        # This is crucial for queries read from .txt files
+        normalized_query = ' '.join(query.split())
+        
         # Build query with date filters
-        pubmed_query = query
+        pubmed_query = normalized_query
         if year_from or year_to:
             date_from = f"{year_from or 1900}/01/01"
             date_to = f"{year_to or datetime.now().year}/12/31"

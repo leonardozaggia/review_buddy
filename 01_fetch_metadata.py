@@ -25,8 +25,8 @@ from src.config import Config
 load_dotenv()
 
 # Configuration
-QUERY = "machine learning AND healthcare"                       # <- Specify your query here
-# QUERY = Path("query.txt").read_text(encoding="utf-8").strip()   # <- Alternatively, parse a query from a .txt file
+#QUERY = "machine learning AND healthcare"                       # <- Specify your query here
+QUERY = Path("query.txt").read_text(encoding="utf-8").strip()   # <- Alternatively, parse a query from a .txt file
 YEAR_FROM = 2020
 MAX_RESULTS_PER_SOURCE = 50
 OUTPUT_DIR = Path("results")

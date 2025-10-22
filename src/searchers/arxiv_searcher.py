@@ -47,10 +47,22 @@ class ArxivSearcher:
         """
         papers = []
         
-        # arXiv API query format: search in all fields
-        arxiv_query = f"all:{query}"
+        # Normalize query - remove newlines and extra whitespace
+        # This is crucial for queries read from .txt files
+        normalized_query = ' '.join(query.split())
         
-        logger.info(f"Searching arXiv with query: {arxiv_query}")
+        # arXiv doesn't support wildcards (*), so remove them
+        # Replace common patterns like "Electroencephalogra*" with just "Electroencephalogr"
+        arxiv_safe_query = normalized_query.replace('*', '')
+        
+        # arXiv also has issues with "NOT" - it uses "ANDNOT" instead
+        # Convert " NOT " to " ANDNOT "
+        arxiv_safe_query = arxiv_safe_query.replace(' NOT ', ' ANDNOT ')
+        
+        # arXiv API query format: search in all fields
+        arxiv_query = f"all:{arxiv_safe_query}"
+        
+        logger.info(f"Searching arXiv with query: {arxiv_query[:200]}...")  # Truncate for readability
         
         # Fetch in batches
         start = 0
@@ -112,6 +124,8 @@ class ArxivSearcher:
                 
             except Exception as e:
                 logger.error(f"arXiv request failed: {e}")
+                import traceback
+                logger.debug(f"arXiv error traceback: {traceback.format_exc()}")
                 break
         
         logger.info(f"arXiv: Successfully retrieved {len(papers)} papers")
