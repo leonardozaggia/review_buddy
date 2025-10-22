@@ -122,7 +122,8 @@ def main():
     print("COMPLETE!")
     print("=" * 80)
     print()
-    print("Next step: Run 03_download_papers.py to download PDFs")
+    print("Next step: Run 02_abstract_filter.py to filter your search")
+    print("If not filtering needed: Run 03_download_papers.py to download PDFs")
     
     return 0
 

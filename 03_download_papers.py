@@ -24,7 +24,10 @@ from src.searchers.paper_downloader import PaperDownloader
 load_dotenv()
 
 # Configuration
-BIB_FILE = Path("results/references.bib")
+filtered = Path("results/references_filtered.bib")
+default = Path("results/references.bib")
+
+BIB_FILE = filtered if filtered.exists() else default
 OUTPUT_DIR = Path("results/pdfs")
 USE_SCIHUB = False  # Set to True to enable Sci-Hub fallback (use responsibly)
 
