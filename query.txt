@@ -1,0 +1,24 @@
+(
+  "Single-trial" OR "Single trial" OR "Within-person" OR "Within person" OR
+  "Within-subject" OR "Within subject" OR "Trial-wise" OR "Trial wise" OR
+  "Trial-by-trial" OR "Trial by trial"
+)
+AND
+(
+  EEG OR ERP OR "Event-related potential" OR "Evoked potential" OR
+  Electroencephalogra* OR Oscillation OR "Spectral power" OR
+  "Time-frequency" OR "Induced power"
+)
+AND
+(
+  Component OR Amplitude OR Latency OR Estimat* OR Power OR Phase
+)
+AND
+(
+  Behavio* OR Performance OR Accura* OR Response tim* OR RT OR Cogniti* OR
+  Personality OR Individual difference*
+)
+NOT
+(
+  Animal OR Rodent OR Monkey OR Macaque OR Patient OR Clinical OR Disorder OR Disease
+)

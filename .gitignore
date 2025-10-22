@@ -4,10 +4,8 @@
 !.env.example
 
 # Results and outputs
-test/
-results/
-test_results/
-test_downloads/
+test*/
+results*/
 CHANGELOG.MD
 *.pdf
 *.bib

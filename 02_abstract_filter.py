@@ -4,13 +4,7 @@ Filter papers based on abstract content.
 This script loads papers from the previous search step, applies various filters
 to exclude unwanted papers, and saves the filtered results.
 
-Filters applied:
-1. No abstract available
-2. Non-English language
-3. Papers on epileptic spikes
-4. Papers on brain-computer interfaces (BCI)
-5. Papers with non-human participants
-6. Non-empirical papers (reviews, methods papers without data)
+CUSTOMIZE YOUR FILTERS BELOW - Edit the settings in the CONFIG section.
 
 Usage:
     python 02_abstract_filter.py
@@ -26,6 +20,73 @@ from pathlib import Path
 
 from src.abstract_filter import AbstractFilter
 from src.utils import load_papers_from_bib, save_papers_csv, save_papers_bib
+
+
+# ============================================================================
+# CONFIGURATION - CUSTOMIZE YOUR FILTERS HERE
+# ============================================================================
+
+# Which filters to apply? Add key and set to True/False
+FILTERS_ENABLED = {
+    'no_abstract': True,        # Remove papers without abstracts
+    'non_english': True,        # Remove non-English papers
+    'epilepsy': True,          # Remove epileptic spike papers
+    'bci': True,               # Remove brain-computer interface papers
+    'non_human': True,         # Remove animal/in-vitro studies
+    'non_empirical': True,     # Remove review papers
+}
+
+# Define keyword-based filters
+# Add, remove, or modify filters as needed for your research area
+KEYWORD_FILTERS = {
+    # Filter for epilepsy-related papers
+    'epilepsy': [
+        'epileptic spike', 'epileptic spikes', 'interictal spike', 'ictal spike',
+        'spike detection', 'epileptiform', 'seizure spike', 'spike-wave',
+        'paroxysmal spike', 'sharp wave', 'spike discharge'
+    ],
+    
+    # Filter for brain-computer interface papers
+    'bci': [
+        'brain-computer interface', 'brain computer interface', 'bci',
+        'brain-machine interface', 'brain machine interface', 'bmi',
+        'neural interface', 'thought control', 'mind control',
+        'p300 speller', 'motor imagery bci', 'steady-state visual'
+    ],
+    
+    # Filter for non-human studies
+    'non_human': [
+        # Animals
+        'rat', 'rats', 'mouse', 'mice', 'murine', 'rodent', 'rodents',
+        'monkey', 'monkeys', 'primate', 'primates', 'macaque', 'macaques',
+        'pig', 'pigs', 'porcine', 'sheep', 'ovine', 'rabbit', 'rabbits',
+        'cat', 'cats', 'feline', 'dog', 'dogs', 'canine',
+        'zebrafish', 'drosophila', 'c. elegans', 'caenorhabditis',
+        # Non-human contexts
+        'in vitro', 'in-vitro', 'cell culture', 'cell line', 'cultured cells',
+        'animal model', 'animal study', 'animal experiment',
+        'non-human', 'non human', 'nonhuman'
+    ],
+    
+    # Filter for non-empirical papers (reviews, etc.)
+    'non_empirical': [
+        'systematic review', 'meta-analysis', 'meta analysis', 'literature review',
+        'scoping review', 'narrative review', 'review article', 'state of the art',
+        'state-of-the-art review', 'survey paper', 'comprehensive review'
+    ],
+    
+    # Add your own custom filters here - examples:
+    # 'fmri_only': [
+    #     'fMRI', 'functional magnetic resonance', 'BOLD signal',
+    # ],
+    # 'pediatric': [
+    #     'children', 'pediatric', 'infant', 'adolescent',
+    # ],
+}
+
+# ============================================================================
+# END CONFIGURATION
+# ============================================================================
 
 
 # Configure logging
@@ -65,15 +126,25 @@ def main():
     
     logger.info(f"Loaded {len(papers)} papers")
     
-    # Create filter
+    # Create filter and register all keyword filters
     filter_tool = AbstractFilter()
+    
+    # Register all keyword-based filters
+    for filter_name, keywords in KEYWORD_FILTERS.items():
+        filter_tool.add_custom_filter(filter_name, keywords)
+        logger.info(f"Registered filter '{filter_name}' with {len(keywords)} keywords")
+    
+    # Determine which filters to apply
+    filters_to_apply = [name for name, enabled in FILTERS_ENABLED.items() if enabled]
+    
+    logger.info(f"\nFilters to apply: {', '.join(filters_to_apply)}")
     
     # Apply filters
     logger.info("\n" + "="*70)
     logger.info("APPLYING FILTERS")
     logger.info("="*70 + "\n")
     
-    results = filter_tool.apply_all_filters(papers)
+    results = filter_tool.apply_all_filters(papers, filters_to_apply=filters_to_apply)
     
     kept_papers = results['kept']
     filtered_papers = results['filtered']

@@ -12,50 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 class AbstractFilter:
-    """Filter papers based on abstract content and metadata"""
+    """
+    Generic filter for papers based on abstract content and metadata.
     
-    # Keywords for identifying epileptic spike papers
-    EPILEPSY_KEYWORDS = {
-        'epileptic spike', 'epileptic spikes', 'interictal spike', 'ictal spike',
-        'spike detection', 'epileptiform', 'seizure spike', 'spike-wave',
-        'paroxysmal spike', 'sharp wave', 'spike discharge'
-    }
-    
-    # Keywords for identifying BCI papers
-    BCI_KEYWORDS = {
-        'brain-computer interface', 'brain computer interface', 'bci',
-        'brain-machine interface', 'brain machine interface', 'bmi',
-        'neural interface', 'thought control', 'mind control',
-        'p300 speller', 'motor imagery bci', 'steady-state visual'
-    }
-    
-    # Keywords for identifying non-human studies
-    NON_HUMAN_KEYWORDS = {
-        # Animals
-        'rat', 'rats', 'mouse', 'mice', 'murine', 'rodent', 'rodents',
-        'monkey', 'monkeys', 'primate', 'primates', 'macaque', 'macaques',
-        'pig', 'pigs', 'porcine', 'sheep', 'ovine', 'rabbit', 'rabbits',
-        'cat', 'cats', 'feline', 'dog', 'dogs', 'canine',
-        'zebrafish', 'drosophila', 'c. elegans', 'caenorhabditis',
-        # Non-human contexts
-        'in vitro', 'in-vitro', 'cell culture', 'cell line', 'cultured cells',
-        'animal model', 'animal study', 'animal experiment',
-        'non-human', 'non human', 'nonhuman'
-    }
-    
-    # Keywords for identifying review papers
-    REVIEW_KEYWORDS = {
-        'systematic review', 'meta-analysis', 'meta analysis', 'literature review',
-        'scoping review', 'narrative review', 'review article', 'state of the art',
-        'state-of-the-art review', 'survey paper', 'comprehensive review'
-    }
-    
-    # Indicators that a paper might be empirical (reduce false positives for reviews)
-    EMPIRICAL_INDICATORS = {
-        'participants', 'subjects', 'patients', 'cohort', 'sample size',
-        'recruited', 'enrollment', 'n =', 'n=', 'dataset', 'data collection',
-        'measured', 'recorded', 'assessed', 'evaluated', 'trial'
-    }
+    This class provides generic filtering capabilities. Domain-specific filters
+    (epilepsy, BCI, etc.) should be defined as custom filters in the main script.
+    """
     
     def __init__(self):
         """Initialize the filter"""
@@ -67,6 +29,27 @@ class AbstractFilter:
             logger.info("Language detection enabled")
         except ImportError:
             logger.warning("langdetect not installed - language filtering will be skipped")
+        
+        # Dictionary to store custom filters
+        self.custom_filters = {}
+        
+        # Store empirical indicators for non_empirical filter
+        self.empirical_indicators = {
+            'participants', 'subjects', 'patients', 'cohort', 'sample size',
+            'recruited', 'enrollment', 'n =', 'n=', 'dataset', 'data collection',
+            'measured', 'recorded', 'assessed', 'evaluated', 'trial'
+        }
+    
+    
+    def add_custom_filter(self, filter_name: str, keywords: List[str]):
+        """
+        Add a custom keyword-based filter.
+        
+        Args:
+            filter_name: Name for the custom filter
+            keywords: List of keywords to filter out
+        """
+        self.custom_filters[filter_name] = set(keywords)
     
     def filter_no_abstract(self, papers: List[Paper]) -> tuple[List[Paper], List[Paper]]:
         """
@@ -177,50 +160,14 @@ class AbstractFilter:
         
         return kept, filtered
     
-    def filter_epilepsy(self, papers: List[Paper]) -> tuple[List[Paper], List[Paper]]:
-        """
-        Filter out papers related to epileptic spikes.
-        
-        Args:
-            papers: List of papers to filter
-        
-        Returns:
-            Tuple of (non_epilepsy_papers, epilepsy_papers)
-        """
-        return self.filter_by_keywords(papers, self.EPILEPSY_KEYWORDS, "Epilepsy")
-    
-    def filter_bci(self, papers: List[Paper]) -> tuple[List[Paper], List[Paper]]:
-        """
-        Filter out papers related to brain-computer interfaces.
-        
-        Args:
-            papers: List of papers to filter
-        
-        Returns:
-            Tuple of (non_bci_papers, bci_papers)
-        """
-        return self.filter_by_keywords(papers, self.BCI_KEYWORDS, "BCI")
-    
-    def filter_non_human(self, papers: List[Paper]) -> tuple[List[Paper], List[Paper]]:
-        """
-        Filter out papers with non-human participants.
-        Uses keyword-based detection.
-        
-        Args:
-            papers: List of papers to filter
-        
-        Returns:
-            Tuple of (human_papers, non_human_papers)
-        """
-        return self.filter_by_keywords(papers, self.NON_HUMAN_KEYWORDS, "Non-human")
-    
-    def filter_non_empirical(self, papers: List[Paper]) -> tuple[List[Paper], List[Paper]]:
+    def filter_non_empirical(self, papers: List[Paper], review_keywords: Set[str]) -> tuple[List[Paper], List[Paper]]:
         """
         Filter out non-empirical papers (reviews, methods papers without data).
         Uses keyword-based detection with empirical indicators to reduce false positives.
         
         Args:
             papers: List of papers to filter
+            review_keywords: Set of keywords that identify review papers
         
         Returns:
             Tuple of (empirical_papers, non_empirical_papers)
@@ -232,11 +179,11 @@ class AbstractFilter:
             text = f"{paper.title} {paper.abstract or ''}".lower()
             
             # Check for review keywords
-            review_keywords = [kw for kw in self.REVIEW_KEYWORDS if kw.lower() in text]
+            found_review_keywords = [kw for kw in review_keywords if kw.lower() in text]
             
-            if review_keywords:
+            if found_review_keywords:
                 # Found review keywords, but check for empirical indicators
-                empirical_indicators = [kw for kw in self.EMPIRICAL_INDICATORS 
+                empirical_indicators = [kw for kw in self.empirical_indicators 
                                        if kw.lower() in text]
                 
                 if empirical_indicators:
@@ -250,7 +197,7 @@ class AbstractFilter:
                 else:
                     # Pure review/methods paper
                     non_empirical.append(paper)
-                    logger.debug(f"Non-empirical filter matched '{review_keywords[0]}': "
+                    logger.debug(f"Non-empirical filter matched '{found_review_keywords[0]}': "
                                f"{paper.title[:50]}...")
             else:
                 empirical.append(paper)
@@ -297,14 +244,23 @@ class AbstractFilter:
                 current_papers, removed = self.filter_no_abstract(current_papers)
             elif filter_name == 'non_english':
                 current_papers, removed = self.filter_non_english(current_papers)
-            elif filter_name == 'epilepsy':
-                current_papers, removed = self.filter_epilepsy(current_papers)
-            elif filter_name == 'bci':
-                current_papers, removed = self.filter_bci(current_papers)
-            elif filter_name == 'non_human':
-                current_papers, removed = self.filter_non_human(current_papers)
             elif filter_name == 'non_empirical':
-                current_papers, removed = self.filter_non_empirical(current_papers)
+                # Non-empirical filter requires review keywords
+                if 'non_empirical' in self.custom_filters:
+                    current_papers, removed = self.filter_non_empirical(
+                        current_papers, 
+                        self.custom_filters['non_empirical']
+                    )
+                else:
+                    logger.warning("Non-empirical filter requested but keywords not provided")
+                    removed = []
+            elif filter_name in self.custom_filters:
+                # Apply custom filter
+                current_papers, removed = self.filter_by_keywords(
+                    current_papers, 
+                    self.custom_filters[filter_name], 
+                    f"Custom: {filter_name}"
+                )
             else:
                 logger.warning(f"Unknown filter: {filter_name}")
                 continue
