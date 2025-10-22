@@ -17,8 +17,9 @@ class ScopusSearcher:
     """Search for papers in Scopus database"""
     
     BASE_URL = "https://api.elsevier.com/content/search/scopus"
+    ABSTRACT_URL = "https://api.elsevier.com/content/abstract/scopus_id"
     
-    def __init__(self, api_key: str, max_results: int = 1000, timeout: int = 30):
+    def __init__(self, api_key: str, max_results: int = 1000, timeout: int = 30, fetch_abstracts: bool = True):
         """
         Initialize Scopus searcher.
         
@@ -26,6 +27,7 @@ class ScopusSearcher:
             api_key: Scopus/Elsevier API key
             max_results: Maximum number of results to fetch
             timeout: Request timeout in seconds
+            fetch_abstracts: Whether to fetch abstracts (requires additional API calls)
         """
         if not api_key:
             raise ValueError("Scopus API key is required")
@@ -33,6 +35,7 @@ class ScopusSearcher:
         self.api_key = api_key
         self.max_results = max_results
         self.timeout = timeout
+        self.fetch_abstracts = fetch_abstracts
         self.session = requests.Session()
     
     def search(self, query: str, year_from: Optional[int] = None, year_to: Optional[int] = None) -> List[Paper]:
@@ -73,6 +76,7 @@ class ScopusSearcher:
                     "start": start,
                     "count": count,
                     "sort": "coverDate",
+                    "view": "COMPLETE",  # Request complete view to get more fields
                 }
                 
                 headers = {"Accept": "application/json"}
@@ -181,9 +185,20 @@ class ScopusSearcher:
                     paper.url = link.get("@href")
                     break
             
-            # Get more details if we have a Scopus link
-            if paper.url:
-                self._enrich_paper(paper)
+            # Abstract (may be available in COMPLETE view)
+            abstract = entry.get("dc:description")
+            if abstract:
+                paper.abstract = abstract
+            
+            # Extract Scopus ID for potential abstract fetching
+            scopus_id = entry.get("dc:identifier")
+            if scopus_id:
+                # Format is "SCOPUS_ID:123456789"
+                scopus_id = scopus_id.replace("SCOPUS_ID:", "")
+            
+            # Fetch abstract if not available and fetching is enabled
+            if not paper.abstract and self.fetch_abstracts and scopus_id:
+                self._fetch_abstract(paper, scopus_id)
             
             return paper
             
@@ -191,17 +206,44 @@ class ScopusSearcher:
             logger.debug(f"Failed to parse Scopus entry: {e}")
             return None
     
-    def _enrich_paper(self, paper: Paper):
+    def _fetch_abstract(self, paper: Paper, scopus_id: str):
         """
-        Fetch additional details from Scopus paper page.
-        This is best-effort - if it fails, we still have the basic data.
+        Fetch abstract using the Scopus Abstract Retrieval API.
         
         Args:
-            paper: Paper object to enrich
+            paper: Paper object to add abstract to
+            scopus_id: Scopus ID of the paper
         """
         try:
-            # We could scrape the paper page here for abstract, keywords, etc.
-            # For now, keeping it simple - the API gives us most of what we need
-            pass
+            url = f"{self.ABSTRACT_URL}/{scopus_id}"
+            params = {
+                "apiKey": self.api_key,
+                "view": "FULL",
+            }
+            headers = {"Accept": "application/json"}
+            
+            response = self.session.get(
+                url,
+                params=params,
+                headers=headers,
+                timeout=self.timeout
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Navigate to abstract in response
+                coredata = data.get("abstracts-retrieval-response", {}).get("coredata", {})
+                abstract = coredata.get("dc:description")
+                
+                if abstract:
+                    paper.abstract = abstract
+                    logger.debug(f"Fetched abstract for: {paper.title[:50]}...")
+                    
+            elif response.status_code == 404:
+                logger.debug(f"No abstract available for Scopus ID: {scopus_id}")
+            else:
+                logger.debug(f"Abstract fetch failed with status {response.status_code} for: {scopus_id}")
+                
         except Exception as e:
-            logger.debug(f"Failed to enrich paper from Scopus: {e}")
+            logger.debug(f"Failed to fetch abstract for Scopus ID {scopus_id}: {e}")
