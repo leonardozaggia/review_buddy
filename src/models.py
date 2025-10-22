@@ -119,9 +119,21 @@ class Paper:
         """
         Merge data from another paper object (for deduplication).
         Takes non-null values from other if this paper is missing them.
+        
+        This is called on the PRIMARY paper (the one we're keeping),
+        and 'other' is the secondary paper we're merging data from.
+        
+        Args:
+            other: Paper to merge data from
         """
         if not other:
             return
+        
+        # Merge authors list - take ours if we have more, otherwise take theirs
+        if not self.authors and other.authors:
+            self.authors = other.authors.copy()
+        elif self.authors and other.authors and len(other.authors) > len(self.authors):
+            self.authors = other.authors.copy()
         
         # Merge simple fields (take other if we don't have it)
         if not self.abstract and other.abstract:
@@ -144,6 +156,10 @@ class Paper:
             self.pages = other.pages
         if not self.publisher and other.publisher:
             self.publisher = other.publisher
+        if not self.issn and other.issn:
+            self.issn = other.issn
+        if not self.isbn and other.isbn:
+            self.isbn = other.isbn
         if not self.url and other.url:
             self.url = other.url
         if not self.pdf_url and other.pdf_url:

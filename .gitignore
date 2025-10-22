@@ -4,9 +4,11 @@
 !.env.example
 
 # Results and outputs
+test/
 results/
 test_results/
 test_downloads/
+CHANGELOG.MD
 *.pdf
 *.bib
 *.ris

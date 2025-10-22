@@ -207,6 +207,11 @@ class PaperSearcher:
         """
         Add papers to collection, deduplicating and merging data.
         
+        Deduplication priority:
+        1. Prefer PubMed papers (higher download success rate)
+        2. If neither or both are PubMed, prefer more recent publication
+        3. Merge missing fields from other paper
+        
         Args:
             papers: List of papers to add
         """
@@ -214,11 +219,60 @@ class PaperSearcher:
             key = paper.title.lower().strip()
             
             if key in self.papers:
-                # Merge with existing paper
-                self.papers[key].merge_with(paper)
+                existing = self.papers[key]
+                new = paper
+                
+                # Determine which paper to keep as primary
+                should_replace = self._should_replace_paper(existing, new)
+                
+                if should_replace:
+                    # Keep new paper as primary, merge existing data into it
+                    new.merge_with(existing)
+                    self.papers[key] = new
+                else:
+                    # Keep existing paper as primary, merge new data into it
+                    existing.merge_with(new)
             else:
                 # Add new paper
                 self.papers[key] = paper
+    
+    def _should_replace_paper(self, existing: Paper, new: Paper) -> bool:
+        """
+        Determine if new paper should replace existing paper as the primary entry.
+        
+        Priority logic:
+        1. PubMed papers are preferred (better download success)
+        2. If PubMed status is the same, prefer more recent publication
+        3. If dates are equal/unknown, keep existing
+        
+        Args:
+            existing: Currently stored paper
+            new: New paper being added
+        
+        Returns:
+            True if new paper should replace existing, False otherwise
+        """
+        existing_is_pubmed = "PubMed" in existing.sources
+        new_is_pubmed = "PubMed" in new.sources
+        
+        # Priority 1: Prefer PubMed
+        if new_is_pubmed and not existing_is_pubmed:
+            return True
+        if existing_is_pubmed and not new_is_pubmed:
+            return False
+        
+        # Priority 2: Prefer more recent publication
+        if new.publication_date and existing.publication_date:
+            return new.publication_date > existing.publication_date
+        
+        # If only one has a date, prefer the one with a date
+        if new.publication_date and not existing.publication_date:
+            return True
+        if existing.publication_date and not new.publication_date:
+            return False
+        
+        # Default: keep existing
+        return False
     
     def generate_bibliography(
         self,

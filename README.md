@@ -104,6 +104,7 @@ USE_SCIHUB = False  # Enable Sci-Hub fallback (use responsibly)
 - **[Quick Start](docs/QUICKSTART.md)** - Fast setup guide
 - **[Query Syntax](docs/QUERY_SYNTAX.md)** - Advanced query examples by field
 - **[Downloader Guide](docs/DOWNLOADER_GUIDE.md)** - PDF download strategies and troubleshooting
+- **[Deduplication Logic](docs/DEDUPLICATION.md)** - How duplicate papers are merged (prioritizes PubMed)
 - **[Implementation](docs/IMPLEMENTATION_SUMMARY.md)** - Technical architecture details
 
 ## Troubleshooting
