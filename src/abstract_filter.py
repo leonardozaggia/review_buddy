@@ -129,6 +129,7 @@ class AbstractFilter:
     ) -> tuple[List[Paper], List[Paper]]:
         """
         Filter out papers containing specific keywords in title or abstract.
+        Uses whole-word matching to avoid false positives from substrings.
         
         Args:
             papers: List of papers to filter
@@ -138,6 +139,8 @@ class AbstractFilter:
         Returns:
             Tuple of (kept_papers, filtered_papers)
         """
+        import re
+        
         kept = []
         filtered = []
         
@@ -145,8 +148,16 @@ class AbstractFilter:
             # Combine title and abstract for searching
             text = f"{paper.title} {paper.abstract or ''}".lower()
             
-            # Check if any exclude keyword is present
-            found_keywords = [kw for kw in exclude_keywords if kw.lower() in text]
+            # Check if any exclude keyword is present (using word boundaries)
+            found_keywords = []
+            for kw in exclude_keywords:
+                kw_lower = kw.lower()
+                # Use word boundaries to match whole words only
+                # This prevents "rodent" from matching in "corrected for"
+                pattern = r'\b' + re.escape(kw_lower) + r'\b'
+                if re.search(pattern, text):
+                    found_keywords.append(kw)
+                    break  # Only need to find one match
             
             if found_keywords:
                 filtered.append(paper)
@@ -164,6 +175,7 @@ class AbstractFilter:
         """
         Filter out non-empirical papers (reviews, methods papers without data).
         Uses keyword-based detection with empirical indicators to reduce false positives.
+        Uses whole-word matching to avoid false positives from substrings.
         
         Args:
             papers: List of papers to filter
@@ -172,21 +184,34 @@ class AbstractFilter:
         Returns:
             Tuple of (empirical_papers, non_empirical_papers)
         """
+        import re
+        
         empirical = []
         non_empirical = []
         
         for paper in papers:
             text = f"{paper.title} {paper.abstract or ''}".lower()
             
-            # Check for review keywords
-            found_review_keywords = [kw for kw in review_keywords if kw.lower() in text]
+            # Check for review keywords using word boundaries
+            found_review_keywords = []
+            for kw in review_keywords:
+                kw_lower = kw.lower()
+                pattern = r'\b' + re.escape(kw_lower) + r'\b'
+                if re.search(pattern, text):
+                    found_review_keywords.append(kw)
+                    break
             
             if found_review_keywords:
                 # Found review keywords, but check for empirical indicators
-                empirical_indicators = [kw for kw in self.empirical_indicators 
-                                       if kw.lower() in text]
+                empirical_indicators_found = []
+                for kw in self.empirical_indicators:
+                    kw_lower = kw.lower()
+                    pattern = r'\b' + re.escape(kw_lower) + r'\b'
+                    if re.search(pattern, text):
+                        empirical_indicators_found.append(kw)
+                        break
                 
-                if empirical_indicators:
+                if empirical_indicators_found:
                     # Has both review keywords and empirical indicators
                     # This might be a systematic review WITH meta-analysis of data
                     # Or a methods paper WITH validation
