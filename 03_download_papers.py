@@ -4,7 +4,7 @@ Download Paper PDFs
 Download PDFs for papers from bibliography file using multiple strategies.
 
 Usage:
-    python 02_download_papers.py
+    python 03_download_papers.py
 
 Configuration:
     Set UNPAYWALL_EMAIL in .env file (see .env.example)

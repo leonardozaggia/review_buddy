@@ -5,7 +5,8 @@ Search and download academic papers from multiple sources with intelligent fallb
 ## Features
 
 - **5 Search Sources**: Scopus, PubMed, arXiv, Google Scholar, IEEE Xplore
-- **Smart Deduplication**: Merges results across sources automatically  
+- **Smart Deduplication**: Merges results across sources automatically
+- **Abstract-Based Filtering**: Remove unwanted papers (non-English, animal studies, reviews, etc.)
 - **10+ Download Methods**: arXiv, bioRxiv, Unpaywall, PMC, publisher patterns, HTML scraping, Crossref, Sci-Hub (optional)
 - **Multiple Formats**: BibTeX, RIS, CSV export
 - **Production Ready**: Comprehensive error handling and logging
@@ -25,8 +26,9 @@ cp .env.example .env
 
 **3. Run:**
 ```bash
-python 01_fetch_metadata.py    # Search papers
-python 02_download_papers.py   # Download PDFs
+python 01_fetch_metadata.py     # Search papers
+python 02_abstract_filter.py    # Filter by abstract (optional)
+python 03_download_papers.py    # Download PDFs
 ```
 
 Results in `results/` folder: `papers.csv`, `references.bib`, `references.ris`, `pdfs/`
@@ -94,7 +96,7 @@ YEAR_FROM = 2020
 MAX_RESULTS_PER_SOURCE = 50
 ```
 
-**Download settings** (`02_download_papers.py`):
+**Download settings** (`03_download_papers.py`):
 ```python
 USE_SCIHUB = False  # Enable Sci-Hub fallback (use responsibly)
 ```
@@ -103,6 +105,7 @@ USE_SCIHUB = False  # Enable Sci-Hub fallback (use responsibly)
 
 - **[Quick Start](docs/QUICKSTART.md)** - Fast setup guide
 - **[Query Syntax](docs/QUERY_SYNTAX.md)** - Advanced query examples by field
+- **[Abstract Filtering](docs/ABSTRACT_FILTERING.md)** - Filter papers by language, study type, topics
 - **[Downloader Guide](docs/DOWNLOADER_GUIDE.md)** - PDF download strategies and troubleshooting
 - **[Deduplication Logic](docs/DEDUPLICATION.md)** - How duplicate papers are merged (prioritizes PubMed)
 - **[Implementation](docs/IMPLEMENTATION_SUMMARY.md)** - Technical architecture details
@@ -127,12 +130,14 @@ USE_SCIHUB = False  # Enable Sci-Hub fallback (use responsibly)
 ```
 review_buddy/
 ├── 01_fetch_metadata.py         # Search papers
-├── 02_download_papers.py        # Download PDFs
+├── 02_abstract_filter.py        # Filter by abstract (optional)
+├── 03_download_papers.py        # Download PDFs
 ├── .env.example                 # Configuration template
 ├── src/
 │   ├── config.py               # Config management
 │   ├── models.py               # Paper data model
 │   ├── paper_searcher.py       # Search coordinator
+│   ├── abstract_filter.py      # Abstract-based filtering
 │   └── searchers/              # Source implementations
 │       ├── scopus_searcher.py
 │       ├── pubmed_searcher.py
@@ -143,8 +148,9 @@ review_buddy/
 ├── docs/                        # Documentation
 └── results/                     # Output (auto-created)
     ├── papers.csv
+    ├── papers_filtered.csv     # After filtering
     ├── references.bib
-    ├── references.ris
+    ├── references_filtered.bib # After filtering
     └── pdfs/
 ```
 

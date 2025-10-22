@@ -17,3 +17,6 @@ scholarly>=1.7.0
 
 # Sci-Hub (optional - install if using Sci-Hub downloader)
 scihub>=0.4.0
+
+# Language detection (optional - for abstract filtering)
+langdetect>=1.0.9

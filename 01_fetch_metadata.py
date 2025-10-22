@@ -121,7 +121,7 @@ def main():
     print("COMPLETE!")
     print("=" * 80)
     print()
-    print("Next step: Run 02_download_papers.py to download PDFs")
+    print("Next step: Run 03_download_papers.py to download PDFs")
     
     return 0
 

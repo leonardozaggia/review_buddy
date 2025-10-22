@@ -83,7 +83,7 @@ downloader.download_from_bib("results/references.bib")
 
 ### Integration Example
 
-See `02_download_papers.py` for a complete workflow example.
+See `03_download_papers.py` for a complete workflow example.
 
 ## Download Strategies
 
