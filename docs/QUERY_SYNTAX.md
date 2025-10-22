@@ -2,6 +2,40 @@
 
 Complete guide for writing effective search queries across all sources.
 
+## Query Input Methods
+
+### Inline Query (Simple)
+```python
+QUERY = "machine learning AND healthcare"
+```
+
+### Text File (Recommended for Complex Queries)
+Create a `query.txt` file with your search terms:
+```python
+QUERY = Path("query.txt").read_text(encoding="utf-8").strip()
+```
+
+**Example `query.txt`:**
+```
+(
+  "machine learning" OR "deep learning" OR "artificial intelligence"
+)
+AND
+(
+  healthcare OR medical OR clinical
+)
+NOT
+(
+  review OR "systematic review"
+)
+```
+
+**Benefits:**
+- Multi-line formatting for readability
+- Easy to edit complex boolean queries
+- Whitespace and newlines are automatically normalized
+- Supports all boolean operators and grouping
+
 ## Basic Operators
 
 | Operator | Syntax | Example |
@@ -11,18 +45,21 @@ Complete guide for writing effective search queries across all sources.
 | **NOT** | `term1 NOT term2` | `AI NOT reinforcement` |
 | **Exact phrase** | `"phrase"` | `"machine learning"` |
 | **Grouping** | `(...)` | `(AI OR ML) AND diagnosis` |
+| **Wildcard** | `term*` | `Electroencephalogra*` (matches any suffix) |
 
 **Note**: Multiple terms without operators default to AND.
 
 ## Source Compatibility
 
-| Source | AND/OR/NOT | Exact Phrase | Notes |
-|--------|-----------|--------------|-------|
-| **Scopus** | ✅ Full support | ✅ | Highest precision |
-| **PubMed** | ✅ Full support | ✅ | Medical index, field-specific |
-| **arXiv** | ✅ Basic | ✅ | Title/abstract search |
-| **Scholar** | ⚠️ Limited | ✅ | Broadest coverage, less precise |
-| **IEEE** | ✅ Full support | ✅ | Engineering focus |
+| Source | AND/OR/NOT | Exact Phrase | Wildcards | Notes |
+|--------|-----------|--------------|-----------|-------|
+| **Scopus** | ✅ Full support | ✅ | ✅ | Highest precision |
+| **PubMed** | ✅ Full support | ✅ | ✅ | Medical index, field-specific |
+| **arXiv** | ✅ Basic | ✅ | ❌ | Wildcards auto-removed |
+| **Scholar** | ⚠️ Limited | ✅ | ⚠️ | Broadest coverage, less precise |
+| **IEEE** | ✅ Full support | ✅ | ✅ | Engineering focus |
+
+**Note**: Queries are automatically adapted for each source (e.g., wildcards removed for arXiv, NOT converted to AND NOT for Scopus).
 
 ## Query Examples by Field
 
@@ -115,10 +152,24 @@ AI AND "educational technology"
 
 ### Combining Multiple Concepts
 
+**Inline:**
+```python
+QUERY = '("machine learning" OR "deep learning" OR AI) AND ("healthcare" OR "medical" OR "clinical") AND (diagnosis OR prognosis OR treatment)'
 ```
-("machine learning" OR "deep learning" OR AI) AND
-("healthcare" OR "medical" OR "clinical") AND
-(diagnosis OR prognosis OR treatment)
+
+**Text file (`query.txt`):**
+```
+(
+  "machine learning" OR "deep learning" OR AI
+)
+AND
+(
+  healthcare OR medical OR clinical
+)
+AND
+(
+  diagnosis OR prognosis OR treatment
+)
 ```
 
 ### Excluding Noise
@@ -196,26 +247,45 @@ TITLE(machine learning) AND KEY(healthcare)
 
 ### Literature Review Search
 
+**Text file format (`query.txt`):**
 ```
-("machine learning" OR "deep learning" OR AI) AND
-(healthcare OR medical OR clinical) AND
-(2020:2024)
+(
+  "machine learning" OR "deep learning" OR "artificial intelligence"
+)
+AND
+(
+  healthcare OR medical OR clinical
+)
 ```
+
+Then set `YEAR_FROM = 2020` in the script.
 
 ### Methodology-Focused
 
+**Text file format:**
 ```
-("random forest" OR "support vector machine" OR "neural network") AND
-healthcare AND
+(
+  "random forest" OR "support vector machine" OR "neural network"
+)
+AND
+healthcare
+AND
 classification
 ```
 
 ### Application-Specific
 
+**Text file format:**
 ```
-"machine learning" AND
-("electronic health records" OR EHR) AND
-("risk prediction" OR prognosis)
+"machine learning"
+AND
+(
+  "electronic health records" OR EHR
+)
+AND
+(
+  "risk prediction" OR prognosis
+)
 ```
 
 ### Emerging Topics
@@ -224,6 +294,34 @@ classification
 ("quantum computing" OR "quantum machine learning") AND
 (healthcare OR medicine)
 ```
+
+## Best Practices
+
+### Use Text Files for Complex Queries
+For queries with multiple concepts, create a `query.txt` file:
+```
+(
+  "Single-trial" OR "Trial-by-trial" OR "Within-subject"
+)
+AND
+(
+  EEG OR "Event-related potential" OR Electroencephalogra*
+)
+NOT
+(
+  Animal OR Patient OR Clinical
+)
+```
+
+Then in `01_fetch_metadata.py`:
+```python
+QUERY = Path("query.txt").read_text(encoding="utf-8").strip()
+```
+
+### Format for Readability
+- Use newlines and indentation
+- One concept per group
+- Comments are removed automatically
 
 ## Troubleshooting
 
@@ -242,6 +340,11 @@ classification
 - Add domain-specific terms
 - Use exact phrases
 - Add exclusions with NOT
+
+**Source-specific errors?**
+- Check [Source Compatibility](#source-compatibility) table
+- Wildcards not supported on arXiv (auto-removed)
+- Complex nested queries may need simplification for some sources
 
 ## Source-Specific Tips
 

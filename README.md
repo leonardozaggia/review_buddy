@@ -62,6 +62,16 @@ Edit `QUERY` in `01_fetch_metadata.py`:
 | **" "** | `"machine learning"` | Exact phrase |
 | **( )** | `(AI OR ML) AND diagnosis` | Grouping |
 
+**Inline query:**
+```python
+QUERY = "machine learning AND healthcare"
+```
+
+**From text file (supports multi-line, formatted queries):**
+```python
+QUERY = Path("query.txt").read_text(encoding="utf-8").strip()
+```
+
 **Examples:**
 ```python
 "machine learning healthcare"                      # Implicit AND
@@ -91,7 +101,12 @@ Edit `QUERY` in `01_fetch_metadata.py`:
 
 **Search settings** (`01_fetch_metadata.py`):
 ```python
+# Inline query
 QUERY = "machine learning AND healthcare"
+
+# Or from text file (for complex, multi-line queries)
+QUERY = Path("query.txt").read_text(encoding="utf-8").strip()
+
 YEAR_FROM = 2020
 MAX_RESULTS_PER_SOURCE = 50
 ```
