@@ -33,6 +33,8 @@ python 03_download_papers.py    # Download PDFs
 
 Results in `results/` folder: `papers.csv`, `references.bib`, `references.ris`, `pdfs/`
 
+**Note:** The download script automatically uses filtered results (`references_filtered.bib`) if available, otherwise uses original results (`references.bib`).
+
 ## Configuration
 
 ### API Keys (at least one required)
@@ -118,12 +120,10 @@ USE_SCIHUB = False  # Enable Sci-Hub fallback (use responsibly)
 
 ## Documentation
 
-- **[Quick Start](docs/QUICKSTART.md)** - Fast setup guide
 - **[Query Syntax](docs/QUERY_SYNTAX.md)** - Advanced query examples by field
-- **[Abstract Filtering](docs/ABSTRACT_FILTERING.md)** - Filter papers by language, study type, topics
+- **[Filter Workflow Example](docs/FILTER_WORKFLOW_EXAMPLE.md)** - Complete filtering workflow with examples
 - **[Downloader Guide](docs/DOWNLOADER_GUIDE.md)** - PDF download strategies and troubleshooting
 - **[Deduplication Logic](docs/DEDUPLICATION.md)** - How duplicate papers are merged (prioritizes PubMed)
-- **[Implementation](docs/IMPLEMENTATION_SUMMARY.md)** - Technical architecture details
 
 ## Troubleshooting
 

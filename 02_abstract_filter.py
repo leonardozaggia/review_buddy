@@ -76,10 +76,10 @@ KEYWORD_FILTERS = {
     ],
     
     # Add your own custom filters here - examples:
-    # 'fmri_only': [
+    # 'non_fmri': [
     #     'fMRI', 'functional magnetic resonance', 'BOLD signal',
     # ],
-    # 'pediatric': [
+    # 'non_pediatric': [
     #     'children', 'pediatric', 'infant', 'adolescent',
     # ],
 }
@@ -185,7 +185,7 @@ def main():
     logger.info(f"  - {results_dir / 'papers_filtered.csv'}")
     logger.info(f"  - {results_dir / 'references_filtered.bib'}")
     logger.info(f"\nFiltered out papers saved to: {filtered_dir}/")
-    logger.info("\nNext step: Run 02_download_papers.py to download PDFs")
+    logger.info("\nNext step: Run 03_download_papers.py to download PDFs")
 
 
 if __name__ == "__main__":

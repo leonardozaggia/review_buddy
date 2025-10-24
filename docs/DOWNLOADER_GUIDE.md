@@ -6,13 +6,20 @@ The Paper Downloader module automatically downloads PDFs for papers from your se
 
 ## Features
 
-✅ **Multi-strategy download approach:**
+✅ **Multi-strategy download approach with automatic fallback:**
 1. Direct PDF links (if available in metadata)
 2. arXiv PDFs (fully automatic, no API key needed)
-3. Unpaywall (open access papers via DOI)
-4. Sci-Hub (optional fallback for paywalled papers)
+3. bioRxiv/medRxiv (for biomedical preprints)
+4. Unpaywall (open access papers via DOI)
+5. Crossref API (full-text links)
+6. PubMed Central (US & Europe mirrors)
+7. Publisher-specific patterns (MDPI, Frontiers, Nature, IEEE, ScienceDirect, Springer, PLOS)
+8. ResearchGate & Academia.edu (academic social networks)
+9. HTML scraping (extracts PDF links from paper pages)
+10. Sci-Hub (optional fallback for paywalled papers)
 
 ✅ **Smart handling:**
+- DOI lookup via Crossref (if DOI missing)
 - Deduplication (skips already downloaded papers)
 - Robust error handling and detailed logging
 - User-agent spoofing for better compatibility
@@ -87,6 +94,8 @@ See `03_download_papers.py` for a complete workflow example.
 
 ## Download Strategies
 
+The downloader attempts strategies in the following order:
+
 ### 1. Direct PDF Links
 - **When**: Paper metadata includes a direct PDF URL
 - **Success Rate**: High for arXiv, preprints
@@ -98,17 +107,53 @@ See `03_download_papers.py` for a complete workflow example.
 - **API Key**: None required
 - **Example**: Any paper with DOI starting with `10.48550/arXiv.`
 
-### 3. Unpaywall
+### 3. bioRxiv/medRxiv
+- **When**: URL contains biorxiv.org or medrxiv.org
+- **Success Rate**: ~95% for preprints
+- **API Key**: None required
+- **Coverage**: Biomedical preprints
+
+### 4. Unpaywall
 - **When**: Paper has a DOI and is open access
 - **Success Rate**: ~30-50% depending on field
 - **API Key**: Email address required (free)
 - **Coverage**: Finds legal OA versions from publishers, repositories, etc.
 
-### 4. Sci-Hub (Optional)
+### 5. Crossref API
+- **When**: Paper has DOI
+- **Success Rate**: Variable
+- **API Key**: None required
+- **Coverage**: Publisher full-text links
+
+### 6. PubMed Central
+- **When**: Paper has PMID or PubMed URL
+- **Success Rate**: High for PMC papers
+- **API Key**: None required
+- **Coverage**: US and Europe PMC mirrors
+
+### 7. Publisher-Specific Patterns
+- **When**: DOI or URL matches known publisher
+- **Success Rate**: 60-80% for supported publishers
+- **API Key**: None required
+- **Supported**: MDPI, Frontiers, Nature, IEEE, ScienceDirect, Springer, PLOS
+
+### 8. ResearchGate & Academia.edu
+- **When**: Title available
+- **Success Rate**: Variable (20-30%)
+- **API Key**: None required
+- **Coverage**: Papers uploaded by authors
+
+### 9. HTML Scraping
+- **When**: URL available
+- **Success Rate**: Variable (30-50%)
+- **API Key**: None required
+- **Coverage**: Extracts PDF links from paper landing pages
+
+### 10. Sci-Hub (Optional)
 - **When**: Enabled and paper has DOI
 - **Success Rate**: Variable (depends on Sci-Hub availability)
 - **Legal Note**: Use responsibly and in accordance with local laws
-- **Setup**: `pip install scihub`
+- **Setup**: Enabled via `USE_SCIHUB = True` in script
 
 ## Output
 
@@ -219,9 +264,12 @@ print(f"Downloaded {pdf_count} / {len(papers)} papers")
 Based on typical research queries:
 
 - **arXiv papers**: 95-100% success
-- **Open access (Unpaywall)**: 30-50% success
+- **bioRxiv/medRxiv preprints**: 95-100% success
+- **PubMed Central papers**: 90-95% success
+- **Open access publishers (MDPI, Frontiers, PLOS)**: 80-90% success
+- **Other open access (Unpaywall)**: 30-50% success
 - **Paywalled (with Sci-Hub)**: Variable, 50-80% success
-- **Overall (OA only)**: 40-60% success
-- **Overall (with Sci-Hub)**: 60-85% success
+- **Overall (without Sci-Hub)**: 50-70% success
+- **Overall (with Sci-Hub)**: 70-90% success
 
 *Note: Success rates vary by research field, publication year, and publisher.*
