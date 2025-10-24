@@ -1,8 +1,8 @@
 """
-Test script to verify AI filtering setup.
+Test script to verify AI filtering setup with Ollama.
 
 This script tests the AI filtering components without processing papers.
-Use this to verify your installation and API key before running the full pipeline.
+Use this to verify your installation before running the full pipeline.
 
 Usage:
     python test_ai_setup.py
@@ -13,22 +13,6 @@ import sys
 import logging
 from pathlib import Path
 
-# Try to load dotenv if available
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    print("Note: python-dotenv not installed, reading .env manually")
-    # Manual .env loading
-    env_file = Path('.env')
-    if env_file.exists():
-        with open(env_file) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, value = line.split('=', 1)
-                    os.environ[key.strip()] = value.strip()
-
 # Enable debug logging for this test
 logging.basicConfig(
     level=logging.DEBUG,
@@ -36,37 +20,39 @@ logging.basicConfig(
 )
 
 print("="*70)
-print("AI FILTERING SETUP TEST")
+print("AI FILTERING SETUP TEST (OLLAMA)")
 print("="*70)
 
-# Test 1: Check openai package
-print("\n[1/5] Checking OpenAI package installation...")
+# Test 1: Check requests package
+print("\n[1/5] Checking requests package installation...")
 try:
-    import openai
-    print(f"✓ OpenAI package installed (version: {openai.__version__})")
+    import requests
+    print(f"✓ requests package installed")
 except ImportError:
-    print("✗ OpenAI package not found")
-    print("  Install with: pip install openai")
+    print("✗ requests package not found")
+    print("  Install with: pip install requests")
     sys.exit(1)
 
-# Test 2: Check API key
-print("\n[2/5] Checking OpenRouter API key...")
-api_key = os.getenv('OPENROUTER_API_KEY')
-if api_key:
-    print(f"✓ API key found (length: {len(api_key)})")
-    if api_key.startswith('sk-or-'):
-        print("✓ API key format looks correct")
+# Test 2: Check Ollama installation
+print("\n[2/5] Checking Ollama installation...")
+import subprocess
+try:
+    result = subprocess.run(['which', 'ollama'], capture_output=True, text=True)
+    if result.returncode == 0:
+        ollama_path = result.stdout.strip()
+        print(f"✓ Ollama found at: {ollama_path}")
     else:
-        print("⚠ Warning: API key doesn't start with 'sk-or-' (might be invalid)")
-else:
-    print("✗ OPENROUTER_API_KEY not found in environment")
-    print("  Add to .env file: OPENROUTER_API_KEY=your_key_here")
+        print("✗ Ollama not found in PATH")
+        print("  Install from: https://ollama.ai")
+        sys.exit(1)
+except Exception as e:
+    print(f"✗ Error checking for Ollama: {e}")
     sys.exit(1)
 
 # Test 3: Check module imports
 print("\n[3/5] Checking module imports...")
 try:
-    from src.llm_client import OpenRouterClient
+    from src.llm_client import OllamaClient
     print("✓ src.llm_client imported successfully")
 except ImportError as e:
     print(f"✗ Failed to import src.llm_client: {e}")
@@ -79,31 +65,65 @@ except ImportError as e:
     print(f"✗ Failed to import src.ai_abstract_filter: {e}")
     sys.exit(1)
 
-# Test 4: Initialize client
-print("\n[4/5] Initializing OpenRouter client...")
+# Test 4: Check if Ollama server is running
+print("\n[4/5] Checking Ollama server...")
+ollama_url = "http://localhost:11434"
 try:
-    client = OpenRouterClient(
-        api_key=api_key,
-        model="openai/gpt-oss-20b:free",
+    response = requests.get(f"{ollama_url}/api/tags", timeout=5)
+    if response.status_code == 200:
+        models = response.json().get('models', [])
+        print(f"✓ Ollama server is running at {ollama_url}")
+        print(f"  Available models: {len(models)}")
+        for model in models:
+            print(f"    - {model['name']}")
+    else:
+        print(f"⚠ Ollama server responded with status {response.status_code}")
+except requests.exceptions.ConnectionError:
+    print("✗ Ollama server is not running")
+    print("  Start with: ollama serve")
+    print("  Or the server will start automatically in SLURM jobs")
+    sys.exit(1)
+except Exception as e:
+    print(f"✗ Error connecting to Ollama: {e}")
+    sys.exit(1)
+
+# Test 5: Initialize client
+print("\n[5/5] Initializing Ollama client...")
+try:
+    # Get first available model or use default
+    response = requests.get(f"{ollama_url}/api/tags")
+    models = response.json().get('models', [])
+    
+    if not models:
+        print("✗ No models available in Ollama")
+        print("  Pull a model with: ollama pull llama3.1")
+        sys.exit(1)
+    
+    test_model = models[0]['name']
+    print(f"  Testing with model: {test_model}")
+    
+    client = OllamaClient(
+        model=test_model,
+        base_url=ollama_url,
         cache_dir=None  # Disable caching for test
     )
-    print("✓ OpenRouter client initialized successfully")
+    print("✓ Ollama client initialized successfully")
 except Exception as e:
     print(f"✗ Failed to initialize client: {e}")
     sys.exit(1)
 
-# Test 5: Test API call (optional, only if user confirms)
-print("\n[5/5] API Connection Test")
-print("Would you like to make a test API call? This will verify your API key works.")
-print("(This is free and won't count against any quotas)")
+# Test 6: Optional API test
+print("\n[6/6] API Connection Test")
+print("Would you like to make a test inference call?")
+print("(This will verify the model works correctly)")
 
 try:
-    response = input("Test API? (y/n): ").strip().lower()
+    response = input("Test inference? (y/n): ").strip().lower()
 except:
     response = 'n'
 
 if response == 'y':
-    print("\nMaking test API call...")
+    print("\nMaking test inference call...")
     
     # Create a simple test paper
     from src.models import Paper
@@ -121,30 +141,32 @@ if response == 'y':
         result = client.check_paper(test_paper, test_filters)
         
         if result['success']:
-            print("✓ API call successful!")
+            print("✓ Inference call successful!")
             print(f"\nTest result:")
             print(f"  Question: {test_filters['test_filter']}")
             print(f"  Answer: {'YES' if result['filters']['test_filter']['should_filter'] else 'NO'}")
             print(f"  Confidence: {result['filters']['test_filter']['confidence']:.2f}")
             print(f"  Reason: {result['filters']['test_filter']['reason']}")
         else:
-            print("✗ API call failed")
+            print("✗ Inference call failed")
             print(f"  Error: {result.get('error', 'Unknown error')}")
             sys.exit(1)
             
     except Exception as e:
-        print(f"✗ API call failed with exception: {e}")
+        print(f"✗ Inference call failed with exception: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 else:
-    print("Skipping API test")
+    print("Skipping inference test")
 
 # Success!
 print("\n" + "="*70)
 print("✓ ALL TESTS PASSED!")
 print("="*70)
-print("\nYour AI filtering setup is ready to use.")
+print("\nYour Ollama AI filtering setup is ready to use.")
 print("\nNext steps:")
 print("  1. Run: python 01_fetch_metadata.py")
-print("  2. Run: python 02_abstract_filter_AI.py")
-print("  3. Review: results/papers_filtered_ai.csv")
-print("\nFor more information, see: docs/AI_FILTERING_QUICKSTART.md")
+print("  2. For small datasets: sbatch run_filter_hpc.sh")
+print("  3. For large datasets: python split_papers_for_hpc.py && sbatch run_filter_hpc_array.sh")
+print("\nFor detailed instructions, see: HPC_SETUP.md")

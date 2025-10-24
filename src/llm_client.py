@@ -1,7 +1,7 @@
 """
-OpenRouter LLM client for AI-powered paper filtering.
+Ollama LLM client for AI-powered paper filtering.
 
-This module provides a client for interacting with OpenRouter API
+This module provides a client for interacting with local Ollama models
 to classify papers using LLM-based analysis.
 """
 
@@ -11,52 +11,47 @@ import time
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 import hashlib
+import requests
 
-from openai import OpenAI
 from .models import Paper
 
 
 logger = logging.getLogger(__name__)
 
 
-class OpenRouterClient:
+class OllamaClient:
     """
-    Client for OpenRouter API using OpenAI SDK.
+    Client for Ollama API for local LLM inference.
     
     Features:
     - Multi-filter analysis in single API call
     - Response caching to avoid redundant calls
     - Retry logic with exponential backoff
-    - Usage tracking and cost estimation
+    - Usage tracking
+    - No rate limits - runs locally on HPC
     """
     
     def __init__(
         self, 
-        api_key: str,
-        model: str = "openai/gpt-oss-20b:free",
+        model: str = "llama3.1",
+        base_url: str = "http://localhost:11434",
         temperature: float = 0.0,
-        max_tokens: int = 200,
         cache_dir: Optional[Path] = None,
         retry_attempts: int = 3
     ):
         """
-        Initialize OpenRouter client.
+        Initialize Ollama client.
         
         Args:
-            api_key: OpenRouter API key
-            model: Model to use (default: free GPT model)
+            model: Model to use (must be available in Ollama)
+            base_url: Ollama server URL (default: localhost)
             temperature: Sampling temperature (0.0 for deterministic)
-            max_tokens: Maximum tokens in response
             cache_dir: Directory to cache responses (None = no caching)
             retry_attempts: Number of retry attempts on failure
         """
-        self.client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key,
-        )
+        self.base_url = base_url.rstrip('/')
         self.model = model
         self.temperature = temperature
-        self.max_tokens = max_tokens
         self.retry_attempts = retry_attempts
         
         # Setup caching
@@ -232,20 +227,29 @@ Remember to respond with valid JSON only."""
         # Try API call with retries
         for attempt in range(self.retry_attempts):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": self.system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens
+                # Call Ollama API
+                response = requests.post(
+                    f"{self.base_url}/api/chat",
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {"role": "system", "content": self.system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        "stream": False,
+                        "options": {
+                            "temperature": self.temperature,
+                        }
+                    },
+                    timeout=120  # 2 minutes timeout for HPC
                 )
                 
+                response.raise_for_status()
                 self.api_calls += 1
                 
                 # Parse response
-                response_text = response.choices[0].message.content
+                response_data = response.json()
+                response_text = response_data['message']['content']
                 parsed = self._parse_response(response_text)
                 
                 # Convert to our format

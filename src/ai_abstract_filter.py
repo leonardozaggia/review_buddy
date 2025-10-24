@@ -12,7 +12,7 @@ import json
 from datetime import datetime
 
 from .models import Paper
-from .llm_client import OpenRouterClient
+from .llm_client import OllamaClient
 
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ class AIAbstractFilter:
     
     def __init__(
         self, 
-        llm_client: OpenRouterClient,
+        llm_client: OllamaClient,
         confidence_threshold: float = 0.5,
         log_decisions: bool = True,
         log_dir: Path = None
@@ -37,7 +37,7 @@ class AIAbstractFilter:
         Initialize AI-powered filter.
         
         Args:
-            llm_client: OpenRouter client for API calls
+            llm_client: Ollama client for local model inference
             confidence_threshold: Minimum confidence for filtering (0.0-1.0)
             log_decisions: Whether to log all decisions to JSON
             log_dir: Directory for decision logs (default: results/)

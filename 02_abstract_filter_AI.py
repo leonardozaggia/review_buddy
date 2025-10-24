@@ -2,7 +2,7 @@
 AI-powered filter for papers based on abstract content.
 
 This script loads papers from the previous search step, applies AI-based filters
-using LLM to analyze abstracts, and saves the filtered results.
+using local Ollama LLM to analyze abstracts, and saves the filtered results.
 
 CUSTOMIZE YOUR FILTERS BELOW - Edit the settings in the CONFIG section.
 
@@ -10,8 +10,8 @@ Usage:
     python 02_abstract_filter_AI.py
 
 Requirements:
-    - Set OPENROUTER_API_KEY in .env file
-    - Install openai package: pip install openai
+    - Ollama installed with model pulled (e.g., llama3.1)
+    - Ollama server running (starts automatically in SLURM job)
 
 Output:
     - results/papers_filtered_ai.csv - Filtered papers
@@ -24,33 +24,21 @@ Output:
 import logging
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 
 from src.ai_abstract_filter import AIAbstractFilter
-from src.llm_client import OpenRouterClient
+from src.llm_client import OllamaClient
 from src.utils import load_papers_from_bib, save_papers_csv, save_papers_bib
-
-
-# Load environment variables
-load_dotenv()
 
 
 # ============================================================================
 # CONFIGURATION - CUSTOMIZE YOUR FILTERS HERE
 # ============================================================================
 
-# ⚠️ IMPORTANT: FREE MODEL LIMITATION
-# The default free model has a 50 requests per day limit.
-# For datasets >50 papers:
-#   1. Use keyword filtering (02_abstract_filter.py) instead
-#   2. Upgrade to paid model (see docs/AI_FILTERING_GUIDE.md)
-#   3. Split processing across multiple days
-
 # AI Model Configuration
 AI_CONFIG = {
-    'model': 'openai/gpt-oss-20b:free',  # ⚠️ 50 requests/day limit
+    'model': 'llama3.1',                  # Ollama model to use
+    'ollama_url': 'http://localhost:11434',  # Ollama server URL
     'temperature': 0.0,                   # Deterministic responses
-    'max_tokens': 200,                    # Token limit per response
     'retry_attempts': 3,                  # Retry failed API calls
     'cache_responses': True,              # Cache to avoid redundant calls
     'confidence_threshold': 0.5,          # Min confidence to filter (0.0-1.0)
@@ -113,7 +101,7 @@ def main():
     """Main AI filtering workflow"""
     
     logger.info("="*70)
-    logger.info("AI-POWERED ABSTRACT FILTERING")
+    logger.info("AI-POWERED ABSTRACT FILTERING (LOCAL OLLAMA)")
     logger.info("="*70)
     
     # Setup paths
@@ -121,13 +109,6 @@ def main():
     bib_file = results_dir / "references.bib"
     filtered_dir = results_dir / "filtered_out_ai"
     filtered_dir.mkdir(exist_ok=True)
-    
-    # Check API key
-    api_key = os.getenv('OPENROUTER_API_KEY')
-    if not api_key:
-        logger.error("OPENROUTER_API_KEY not found in environment variables!")
-        logger.error("Please set it in your .env file")
-        return
     
     # Check if input file exists
     if not bib_file.exists():
@@ -145,24 +126,24 @@ def main():
     
     logger.info(f"Loaded {len(papers)} papers")
     
-    # Initialize LLM client
-    logger.info("\nInitializing OpenRouter client...")
+    # Initialize Ollama client
+    logger.info("\nInitializing Ollama client...")
     logger.info(f"Model: {AI_CONFIG['model']}")
+    logger.info(f"Ollama URL: {AI_CONFIG['ollama_url']}")
     logger.info(f"Confidence threshold: {AI_CONFIG['confidence_threshold']}")
     
     cache_dir = results_dir / "ai_cache" if AI_CONFIG['cache_responses'] else None
     
     try:
-        llm_client = OpenRouterClient(
-            api_key=api_key,
+        llm_client = OllamaClient(
             model=AI_CONFIG['model'],
+            base_url=AI_CONFIG['ollama_url'],
             temperature=AI_CONFIG['temperature'],
-            max_tokens=AI_CONFIG['max_tokens'],
             cache_dir=cache_dir,
             retry_attempts=AI_CONFIG['retry_attempts']
         )
     except Exception as e:
-        logger.error(f"Failed to initialize LLM client: {e}")
+        logger.error(f"Failed to initialize Ollama client: {e}")
         return
     
     # Create AI filter
@@ -205,9 +186,9 @@ def main():
     for filter_name, count in summary['filtered_by_category'].items():
         logger.info(f"  - {filter_name:20s}: {count:4d} papers")
     
-    logger.info("\nAPI Usage:")
+    logger.info("\nOllama Usage:")
     api_stats = summary['api_stats']
-    logger.info(f"  - API calls made:      {api_stats['api_calls']}")
+    logger.info(f"  - Model calls made:    {api_stats['api_calls']}")
     logger.info(f"  - Cache hits:          {api_stats['cache_hits']}")
     logger.info(f"  - Failed calls:        {api_stats['failed_calls']}")
     logger.info(f"  - Cache hit rate:      {api_stats['cache_hit_rate']}")
