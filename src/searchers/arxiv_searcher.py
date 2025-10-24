@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 import time
 
 from ..models import Paper
+from ..progress import create_progress_tracker
 
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ class ArxivSearcher:
         # Fetch in batches
         start = 0
         batch_size = 100  # arXiv recommends max 100 per request
+        progress = None
         
         while len(papers) < self.max_results:
             try:
@@ -98,6 +100,16 @@ class ArxivSearcher:
                 if not entries:
                     break
                 
+                # Initialize progress bar on first batch
+                if progress is None and entries:
+                    # Get total results from opensearch:totalResults
+                    total_results_elem = root.find('opensearch:totalResults', 
+                                                  {'opensearch': 'http://a9.com/-/spec/opensearch/1.1/'})
+                    if total_results_elem is not None and total_results_elem.text:
+                        total_results = int(total_results_elem.text)
+                        max_to_fetch = min(total_results, self.max_results)
+                        progress = create_progress_tracker(max_to_fetch, "arXiv")
+                
                 for entry in entries:
                     paper = self._parse_entry(entry, ns)
                     if paper:
@@ -111,9 +123,8 @@ class ArxivSearcher:
                                     continue
                         
                         papers.append(paper)
-                        
-                        if len(papers) % 50 == 0:
-                            logger.info(f"arXiv: Fetched {len(papers)}/{self.max_results} papers")
+                        if progress:
+                            progress.update(1)
                 
                 # Check if we should continue
                 if len(entries) < batch_size or len(papers) >= self.max_results:
@@ -127,6 +138,9 @@ class ArxivSearcher:
                 import traceback
                 logger.debug(f"arXiv error traceback: {traceback.format_exc()}")
                 break
+        
+        if progress:
+            progress.close()
         
         logger.info(f"arXiv: Successfully retrieved {len(papers)} papers")
         return papers

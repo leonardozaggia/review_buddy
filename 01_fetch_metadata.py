@@ -12,6 +12,7 @@ Configuration:
 
 import os
 import sys
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -24,11 +25,18 @@ from src.config import Config
 # Load environment variables
 load_dotenv()
 
+# Configure logging to show progress
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
 # Configuration
-#QUERY = "machine learning AND healthcare"                       # <- Specify your query here
+#QUERY = "machine learning AND healthcare"                      # <- Specify your query here
 QUERY = Path("query.txt").read_text(encoding="utf-8").strip()   # <- Alternatively, parse a query from a .txt file
 YEAR_FROM = 2020
-MAX_RESULTS_PER_SOURCE = 50
+MAX_RESULTS_PER_SOURCE = 999999                                 # Use 999999 for unlimited search
 OUTPUT_DIR = Path("results")
 
 def main():

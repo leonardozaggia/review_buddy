@@ -10,6 +10,7 @@ from datetime import datetime
 from xml.etree import ElementTree as ET
 
 from ..models import Paper
+from ..progress import create_progress_tracker
 
 
 logger = logging.getLogger(__name__)
@@ -81,14 +82,17 @@ class PubMedSearcher:
         
         # Step 2: Fetch details in batches
         batch_size = 100
+        progress = create_progress_tracker(len(pmids), "PubMed")
+        
         for i in range(0, len(pmids), batch_size):
             batch = pmids[i:i + batch_size]
             batch_papers = self._fetch_details(batch)
             papers.extend(batch_papers)
             
-            logger.info(f"PubMed: Fetched {len(papers)}/{len(pmids)} papers")
+            progress.update(len(batch))
             time.sleep(self.delay)  # Rate limiting
         
+        progress.close()
         logger.info(f"PubMed: Successfully retrieved {len(papers)} papers")
         return papers
     

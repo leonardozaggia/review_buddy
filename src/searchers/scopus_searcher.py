@@ -8,6 +8,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from ..models import Paper
+from ..progress import create_progress_tracker
 
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,7 @@ class ScopusSearcher:
         start = 0
         count = 25  # Results per page
         total_fetched = 0
+        progress = None
         
         while total_fetched < self.max_results:
             try:
@@ -124,6 +126,9 @@ class ScopusSearcher:
                 
                 if start == 0:
                     logger.info(f"Scopus: Found {total_results} total results")
+                    # Initialize progress bar
+                    max_to_fetch = min(total_results, self.max_results)
+                    progress = create_progress_tracker(max_to_fetch, "Scopus")
                 
                 entries = search_results.get("entry", [])
                 
@@ -135,8 +140,8 @@ class ScopusSearcher:
                     if paper:
                         papers.append(paper)
                         total_fetched += 1
-                
-                logger.info(f"Scopus: Fetched {total_fetched}/{min(total_results, self.max_results)} papers")
+                        if progress:
+                            progress.update(1)
                 
                 # Check if we should continue
                 if total_fetched >= total_results or total_fetched >= self.max_results:
@@ -151,6 +156,9 @@ class ScopusSearcher:
             except Exception as e:
                 logger.error(f"Scopus parsing error: {e}")
                 break
+        
+        if progress:
+            progress.close()
         
         logger.info(f"Scopus: Successfully retrieved {len(papers)} papers")
         return papers

@@ -9,6 +9,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from ..models import Paper
+from ..progress import create_progress_tracker
 
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ class IEEESearcher:
         # Fetch in batches
         start = 1  # IEEE starts at 1, not 0
         batch_size = 200  # IEEE max per request
+        progress = None
         
         while len(papers) < self.max_results:
             try:
@@ -96,6 +98,8 @@ class IEEESearcher:
                 
                 if start == 1:
                     logger.info(f"IEEE: Found {total_records} total results")
+                    max_to_fetch = min(total_records, self.max_results)
+                    progress = create_progress_tracker(max_to_fetch, "IEEE")
                 
                 articles = data.get('articles', [])
                 
@@ -106,9 +110,8 @@ class IEEESearcher:
                     paper = self._parse_article(article)
                     if paper:
                         papers.append(paper)
-                        
-                        if len(papers) % 50 == 0:
-                            logger.info(f"IEEE: Fetched {len(papers)}/{min(total_records, self.max_results)} papers")
+                        if progress:
+                            progress.update(1)
                 
                 # Check if we should continue
                 if len(articles) < batch_size or len(papers) >= self.max_results or len(papers) >= total_records:
@@ -119,6 +122,9 @@ class IEEESearcher:
             except Exception as e:
                 logger.error(f"IEEE request failed: {e}")
                 break
+        
+        if progress:
+            progress.close()
         
         logger.info(f"IEEE: Successfully retrieved {len(papers)} papers")
         return papers
