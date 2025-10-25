@@ -5,8 +5,7 @@
 
 # Results and outputs
 test*/
-results*/
-CHANGELOG.MD
+results/*
 *.pdf
 *.bib
 *.ris
@@ -47,6 +46,8 @@ Thumbs.db
 
 # Logs
 *.log
+*.out
+*.err
 
 # Temporary files
 *.tmp
