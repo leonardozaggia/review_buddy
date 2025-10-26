@@ -66,6 +66,9 @@ class ScholarSearcher:
         
         logger.info(f"Searching Google Scholar with query: {scholar_query}")
         
+        # Note: Google Scholar doesn't provide total result count upfront
+        # We'll just report progress as we fetch
+        
         try:
             # Search with scholarly
             search_results = self.scholarly.search_pubs(scholar_query)
@@ -82,7 +85,7 @@ class ScholarSearcher:
                         count += 1
                         
                         if count % 10 == 0:
-                            logger.info(f"Google Scholar: Fetched {count}/{self.max_results} papers")
+                            logger.info(f"Google Scholar: Fetched {count} papers so far...")
                     
                     # Be nice to Google - add small delay
                     time.sleep(0.5)
