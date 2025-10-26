@@ -31,6 +31,8 @@ python 02_abstract_filter.py    # Filter by abstract (optional)
 python 03_download_papers.py    # Download PDFs
 ```
 
+Optional: AI-powered abstract filtering is available via `02_abstract_filter_AI.py`. It requires a local LLM server (e.g., Ollama) and may need GPU/cluster resources for reasonable speed — see `run_filter_hpc.sh` for an example HPC job script.
+
 Results in `results/` folder: `papers.csv`, `references.bib`, `references.ris`, `pdfs/`
 
 **Note:** The download script automatically uses filtered results (`references_filtered.bib`) if available, otherwise uses original results (`references.bib`).
