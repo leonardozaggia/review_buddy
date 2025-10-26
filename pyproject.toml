@@ -68,10 +68,10 @@ Repository = "https://github.com/leonardozaggia/review_buddy"
 Issues = "https://github.com/leonardozaggia/review_buddy/issues"
 
 [project.scripts]
-reviewbuddy = "cli:main"
+reviewbuddy = "reviewbuddy:main"
 
 [tool.setuptools]
-packages = ["core", "src", "src.searchers"]
+packages = ["core", "src", "src.searchers", "reviewbuddy"]
 
 [tool.black]
 line-length = 100

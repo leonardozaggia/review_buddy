@@ -108,4 +108,4 @@ ai:
 # Download settings
 download:
   use_scihub: false
-  unpaywall_email: null  # Set to your email for better success rates
+  unpaywall_email: leonardo.zaggia@uol.de  # Set to your email for better success rates

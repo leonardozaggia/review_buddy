@@ -1,0 +1,6 @@
+Title,Authors,Journal,Year,DOI,PMID,URL,Has_Abstract,Abstract
+Machine Learning in Healthcare,John Doe; Jane Smith,Journal of AI,2023,10.1234/ml.2023.001,,,Yes,"This paper discusses machine learning applications in healthcare settings with focus on clinical decision support systems."
+Deep Learning for Medical Imaging,Alice Johnson,Medical Imaging Review,2023,10.1234/dl.2023.002,12345678,,Yes,"We present a deep learning approach for automated medical image analysis in radiology departments."
+Neural Networks for Diagnosis,Bob Williams,AI in Medicine,2022,10.1234/nn.2022.003,,,Yes,"This study evaluates neural network architectures for automated disease diagnosis from patient data."
+Review of ML Methods,Carol Davis,Review Journal,2023,10.1234/rev.2023.004,,,Yes,"A systematic review of machine learning methods applied to healthcare over the past decade."
+Rat Brain Study,David Miller,Neuroscience Letters,2023,10.1234/rat.2023.005,,,Yes,"We performed analysis on rat brain tissue samples using machine learning algorithms."
