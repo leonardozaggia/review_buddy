@@ -1,0 +1,111 @@
+# Review Buddy Pipeline Configuration
+# 
+# This file configures the entire paper search, filter, and download pipeline.
+# Edit settings below to customize behavior.
+
+# Filter engine: 'normal' (keyword-based) or 'ai' (LLM-powered)
+engine: normal
+
+# Input/Output paths
+io:
+  input_path: results/references.bib
+  output_dir: results
+  pdf_dir: results/pdfs
+
+# Search/metadata fetch settings
+search:
+  query: machine learning AND healthcare
+  year_from: 2020
+  max_results_per_source: 999999
+
+# Normal (keyword-based) filter settings
+normal:
+  enabled_filters:
+    - no_abstract
+    - non_english
+    - non_human
+    - non_empirical
+  
+  # Define custom keyword filters
+  keywords:
+    epilepsy:
+      - epileptic spike
+      - epileptic spikes
+      - interictal spike
+      - ictal spike
+      - seizure spike
+      - epileptiform
+      - spike-wave
+    
+    bci:
+      - brain-computer interface
+      - brain computer interface
+      - bci
+      - brain-machine interface
+      - brain machine interface
+      - bmi
+      - neural interface
+    
+    non_human:
+      - rat
+      - rats
+      - mouse
+      - mice
+      - rodent
+      - rodents
+      - monkey
+      - monkeys
+      - primate
+      - primates
+      - in vitro
+      - in-vitro
+      - cell culture
+      - cell line
+      - animal model
+      - animal study
+    
+    non_empirical:
+      - systematic review
+      - meta-analysis
+      - meta analysis
+      - literature review
+      - scoping review
+      - narrative review
+      - review article
+      - survey paper
+
+# AI filter settings (requires Ollama)
+ai:
+  model: llama3.1:8b
+  ollama_url: http://localhost:11434
+  temperature: 0.1
+  confidence_threshold: 0.5
+  cache_responses: true
+  retry_attempts: 3
+  
+  # Define AI filters with natural language prompts
+  filters:
+    epilepsy:
+      enabled: true
+      prompt: Does this paper focus primarily on epileptic spikes, seizure detection, or epileptiform activity?
+      description: Papers about epilepsy-related spike detection
+    
+    bci:
+      enabled: true
+      prompt: Is this paper about brain-computer interfaces (BCI) or brain-machine interfaces (BMI)?
+      description: Papers about BCI/BMI systems
+    
+    non_human:
+      enabled: true
+      prompt: Is this paper based on animal studies, in-vitro experiments, or computational models only (not human subjects)?
+      description: Non-human or in-vitro studies
+    
+    non_empirical:
+      enabled: true
+      prompt: Is this a review paper, survey, meta-analysis, or opinion piece without original empirical data collection?
+      description: Reviews and non-empirical papers
+
+# Download settings
+download:
+  use_scihub: false
+  unpaywall_email: null  # Set to your email for better success rates

@@ -2,20 +2,91 @@
 
 Search and download academic papers from multiple sources with intelligent fallback strategies.
 
+## 🆕 Version 2.0 - Major Refactor
+
+**Review Buddy has been refactored** to provide:
+- **Unified CLI**: Single `reviewbuddy` command for all operations
+- **Clean GUI**: Streamlit web interface for the complete pipeline
+- **Modular Architecture**: Separate core logic from interfaces
+- **Flexible Configuration**: YAML-based config with sensible defaults
+- **Unified Filtering API**: Both keyword and AI filters use the same interface
+
+### 🚀 Quick Start (New Way)
+
+```bash
+# Install
+pip install -e .
+
+# Initialize config
+reviewbuddy init
+
+# Run full pipeline
+reviewbuddy run
+
+# Or use the GUI
+streamlit run app.py
+```
+
+### 📋 Migration Guide
+
+**Old scripts still work!** The original `01_*.py`, `02_*.py`, `03_*.py` scripts are maintained for backward compatibility.
+
+**New unified commands:**
+| Old | New |
+|-----|-----|
+| `python 01_fetch_metadata.py` | `reviewbuddy search` |
+| `python 02_abstract_filter.py` | `reviewbuddy filter --engine normal` |
+| `python 02_abstract_filter_AI.py` | `reviewbuddy filter --engine ai` |
+| `python 03_download_papers.py` | `reviewbuddy download` |
+| All three steps | `reviewbuddy run` |
+
+**Benefits of new CLI:**
+- Consistent flags across all commands
+- Single YAML config file
+- Better error messages
+- Progress indicators
+- `--help` for every command
+
+---
+
 ## Features
 
 - **5 Search Sources**: Scopus, PubMed, arXiv, Google Scholar, IEEE Xplore
 - **Smart Deduplication**: Merges results across sources automatically
-- **Abstract-Based Filtering**: Remove unwanted papers (non-English, animal studies, reviews, etc.)
+- **Dual Filtering Engines**: Keyword-based (fast) or AI-powered (nuanced)
 - **10+ Download Methods**: arXiv, bioRxiv, Unpaywall, PMC, publisher patterns, HTML scraping, Crossref, Sci-Hub (optional)
 - **Multiple Formats**: BibTeX, RIS, CSV export
 - **Production Ready**: Comprehensive error handling and logging
+- **CLI & GUI**: Command-line tool + web interface
 
-## Quick Start
+## Installation
 
-**1. Install dependencies:**
+### Option 1: pip install (recommended)
+
+```bash
+# Clone repository
+git clone https://github.com/leonardozaggia/review_buddy.git
+cd review_buddy
+
+# Install with dependencies
+pip install -e .
+
+# Verify installation
+reviewbuddy --help
+```
+
+### Option 2: Direct dependencies
+
 ```bash
 pip install -r requirements.txt
+```
+
+## Quick Start - CLI
+
+**1. Create configuration:**
+```bash
+reviewbuddy init
+# Edit config.yaml with your search query and settings
 ```
 
 **2. Configure API keys:**
@@ -24,33 +95,150 @@ cp .env.example .env
 # Edit .env and add at least one API key
 ```
 
-**3. Run:**
+**3. Run the pipeline:**
+
 ```bash
-python 01_fetch_metadata.py     # Search papers
-python 02_abstract_filter.py    # Filter by abstract (optional)
-python 03_download_papers.py    # Download PDFs
+# Full pipeline: search → filter → download
+reviewbuddy run
+
+# Or run individual steps:
+reviewbuddy search --query "machine learning AND healthcare"
+reviewbuddy filter --engine normal
+reviewbuddy download
 ```
 
-Results in `results/` folder: `papers.csv`, `references.bib`, `references.ris`, `pdfs/`
+**4. View configuration:**
+```bash
+reviewbuddy info
+```
 
-**Note:** The download script automatically uses filtered results (`references_filtered.bib`) if available, otherwise uses original results (`references.bib`).
+### CLI Command Reference
+
+```bash
+# Initialize config.yaml
+reviewbuddy init
+
+# Search for papers
+reviewbuddy search \
+  --query "machine learning healthcare" \
+  --year-from 2020 \
+  --max-results 100
+
+# Filter with keyword engine
+reviewbuddy filter --engine normal
+
+# Filter with AI engine
+reviewbuddy filter --engine ai
+
+# Download PDFs
+reviewbuddy download --scihub
+
+# Run full pipeline
+reviewbuddy run --engine normal
+
+# Skip steps in pipeline
+reviewbuddy run --skip-search    # Use existing papers
+reviewbuddy run --skip-filter    # Skip filtering
+reviewbuddy run --skip-download  # Only search and filter
+
+# Show current config
+reviewbuddy info
+
+# Use custom config file
+reviewbuddy run --config my_config.yaml
+```
+
+## Quick Start - GUI
+
+**Launch the GUI:**
+
+```bash
+streamlit run app.py
+```
+
+The GUI provides a three-step workflow:
+
+1. **🔍 Search/Upload**: Search databases or upload existing papers
+2. **🎯 Filter**: Apply keyword or AI filters with live preview
+3. **⬇️ Download**: Download PDFs with progress tracking
+
+**GUI Features:**
+- File upload (BibTeX, CSV)
+- Interactive configuration
+- Real-time preview of papers
+- Filter toggle (normal ↔ ai)
+- Download CSV/BibTeX results
+- Visual filtering statistics
 
 ## Configuration
 
-### API Keys (at least one required)
+### Config File (`config.yaml`)
 
-**Scopus**: Get from [Elsevier Developer Portal](https://dev.elsevier.com/)  
-**PubMed**: Use any valid email (free, no registration)  
-**IEEE** (optional): Get from [IEEE Developer Portal](https://developer.ieee.org/)
+The `config.yaml` file centralizes all pipeline settings:
 
-**arXiv and Google Scholar work without keys.**
+```yaml
+# Filter engine: 'normal' (keyword) or 'ai' (LLM)
+engine: normal
 
-Edit `.env`:
-```bash
-SCOPUS_API_KEY=your_key_here
-PUBMED_EMAIL=your.email@example.com
-UNPAYWALL_EMAIL=your.email@example.com  # Optional, for open access papers
+# Input/output paths
+io:
+  input_path: results/references.bib
+  output_dir: results
+  pdf_dir: results/pdfs
+
+# Search settings
+search:
+  query: machine learning AND healthcare
+  year_from: 2020
+  max_results_per_source: 999999
+
+# Normal (keyword) filter
+normal:
+  enabled_filters:
+    - no_abstract
+    - non_english
+    - non_human
+    - non_empirical
+  keywords:
+    non_human:
+      - rat
+      - mouse
+      - in vitro
+    # Add custom filters here
+
+# AI filter
+ai:
+  model: llama3.1:8b
+  ollama_url: http://localhost:11434
+  confidence_threshold: 0.5
+  filters:
+    non_human:
+      enabled: true
+      prompt: "Is this paper based on animal studies or in-vitro experiments?"
+    # Add custom AI filters here
+
+# Download settings
+download:
+  use_scihub: false
+  unpaywall_email: null
 ```
+
+**Generate default config:**
+```bash
+reviewbuddy init
+```
+
+### Environment Variables
+### Environment Variables
+
+API keys are configured in `.env` file:
+
+```bash
+cp .env.example .env
+# Edit and add API keys
+```
+
+**Required (at least one):**
 
 ## Query Syntax
 
