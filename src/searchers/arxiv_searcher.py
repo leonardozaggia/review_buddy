@@ -143,6 +143,7 @@ class ArxivSearcher:
             progress.close()
         
         logger.info(f"arXiv: Successfully retrieved {len(papers)} papers")
+        logger.info(f"arXiv: {int(self.max_results)-len(papers)} out of {self.max_results} where published before {year_from}")
         return papers
     
     def _parse_entry(self, entry: ET.Element, ns: dict) -> Optional[Paper]:
