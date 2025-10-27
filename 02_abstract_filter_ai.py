@@ -24,6 +24,7 @@ Output:
 import logging
 import os
 from pathlib import Path
+import requests
 
 from src.ai_abstract_filter import AIAbstractFilter
 from src.llm_client import OllamaClient
@@ -115,6 +116,27 @@ def main():
         logger.error(f"Input file not found: {bib_file}")
         logger.error("Please run 01_fetch_metadata.py first")
         return
+    
+    # Check if Ollama server is reachable
+    logger.info(f"\nChecking Ollama server at {AI_CONFIG['ollama_url']}...")
+    try:
+        response = requests.get(f"{AI_CONFIG['ollama_url']}/api/tags", timeout=5)
+        response.raise_for_status()
+        logger.info("✓ Ollama server is running")
+    except requests.exceptions.ConnectionError:
+        logger.error(f"✗ Cannot connect to Ollama server at {AI_CONFIG['ollama_url']}")
+        logger.error("\nTo fix this:")
+        logger.error("  1. Make sure Ollama is installed: https://ollama.ai")
+        logger.error("  2. Start the Ollama server: ollama serve")
+        logger.error("  3. Re-run this script")
+        return
+    except requests.exceptions.Timeout:
+        logger.error(f"✗ Ollama server at {AI_CONFIG['ollama_url']} is not responding")
+        logger.error("Check if the server is running: ollama serve")
+        return
+    except Exception as e:
+        logger.warning(f"Could not verify Ollama server status: {e}")
+        logger.warning("Continuing anyway...")
     
     # Load papers
     logger.info(f"\nLoading papers from {bib_file}...")

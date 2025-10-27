@@ -110,6 +110,9 @@ class AIAbstractFilter:
         filtered_papers = {name: [] for name in filter_questions.keys()}
         manual_review_papers = []
         
+        # Track which papers we've already added to manual review
+        papers_needing_manual_review = set()
+        
         logger.info(f"\nProcessing {len(papers)} papers with AI filters...")
         logger.info(f"Filters: {', '.join(filter_questions.keys())}")
         
@@ -128,16 +131,21 @@ class AIAbstractFilter:
             
             self.papers_processed += 1
             
-            # Check if API failed or flagged for review
-            if not result['success'] or result['manual_review']:
-                manual_review_papers.append(paper)
-                kept_papers.append(paper)  # Keep but flag
-                self.papers_flagged_manual_review += 1
-                logger.warning(f"Manual review needed: {paper.title[:50]}")
+            # Check if API failed
+            if not result['success']:
+                # API failure - keep but flag for manual review
+                kept_papers.append(paper)
+                if id(paper) not in papers_needing_manual_review:
+                    manual_review_papers.append(paper)
+                    papers_needing_manual_review.add(id(paper))
+                    self.papers_flagged_manual_review += 1
+                logger.warning(f"API failure, manual review needed: {paper.title[:50]}")
+                continue  # Skip to next paper
             
             # Check each filter
             should_filter = False
             filter_reasons = []
+            needs_manual_review = result['manual_review']
             
             for filter_name, filter_result in result['filters'].items():
                 if filter_result['should_filter']:
@@ -156,14 +164,19 @@ class AIAbstractFilter:
                                    f"{paper.title[:50]}")
                     else:
                         # Low confidence - flag for manual review
-                        manual_review_papers.append(paper)
-                        self.papers_flagged_manual_review += 1
+                        needs_manual_review = True
                         logger.info(f"Low confidence for {filter_name} (conf={confidence:.2f}), "
                                   f"flagging for review: {paper.title[:50]}")
             
             # Keep paper if not filtered by any filter
             if not should_filter:
                 kept_papers.append(paper)
+                
+                # Add to manual review if flagged (only once per paper)
+                if needs_manual_review and id(paper) not in papers_needing_manual_review:
+                    manual_review_papers.append(paper)
+                    papers_needing_manual_review.add(id(paper))
+                    self.papers_flagged_manual_review += 1
             
             # Log decision
             decision = {
@@ -171,7 +184,7 @@ class AIAbstractFilter:
                 'doi': paper.doi,
                 'filtered': should_filter,
                 'filter_reasons': filter_reasons,
-                'manual_review': result['manual_review'],
+                'manual_review': needs_manual_review,
                 'api_success': result['success'],
                 'all_filter_results': result['filters']
             }
@@ -181,12 +194,12 @@ class AIAbstractFilter:
         logger.info(f"\nAI filtering complete:")
         logger.info(f"  Papers processed: {self.papers_processed}")
         logger.info(f"  Papers kept: {len(kept_papers)}")
-        logger.info(f"  Papers flagged for manual review: {len(set(manual_review_papers))}")
+        logger.info(f"  Papers flagged for manual review: {len(manual_review_papers)}")
         
         return {
             'kept': kept_papers,
             'filtered': filtered_papers,
-            'manual_review': list(set(manual_review_papers)),  # Deduplicate
+            'manual_review': manual_review_papers,
             'decisions': self.decision_log
         }
     

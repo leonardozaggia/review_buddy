@@ -5,8 +5,8 @@ Utility functions for loading and saving papers.
 import logging
 import csv
 from pathlib import Path
-from datetime import date
-from typing import List
+from datetime import date, datetime
+from typing import List, Dict, Set, Any
 
 from .models import Paper
 
@@ -165,3 +165,123 @@ def save_papers_bib(papers: List[Paper], output_file: Path):
         
     except Exception as e:
         logger.error(f"Failed to save BibTeX: {e}")
+
+
+def save_filter_comparison(comparison_data: Dict[str, Any], output_file: Path):
+    """
+    Save filter comparison results to a text file.
+    
+    Args:
+        comparison_data: Dictionary containing comparison statistics
+        output_file: Path to output text file
+    """
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write("=" * 80 + "\n")
+            f.write("FILTERING COMPARISON: AI vs Keyword-based\n")
+            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("=" * 80 + "\n\n")
+            
+            # Basic statistics
+            f.write("📊 BASIC STATISTICS\n")
+            f.write("-" * 80 + "\n")
+            f.write(f"Total papers retrieved:        {comparison_data['total_papers']:4d}\n")
+            f.write(f"Papers after keyword filter:   {comparison_data['keyword_kept']:4d} "
+                   f"({comparison_data['keyword_kept']/comparison_data['total_papers']*100:.1f}%)\n")
+            f.write(f"Papers after AI filter:        {comparison_data['ai_kept']:4d} "
+                   f"({comparison_data['ai_kept']/comparison_data['total_papers']*100:.1f}%)\n\n")
+            
+            # Data quality issues
+            if comparison_data.get('duplicates_in_kept_and_filtered'):
+                f.write("⚠️  DATA QUALITY ISSUE DETECTED!\n")
+                f.write("-" * 80 + "\n")
+                f.write(f"Found {len(comparison_data['duplicates_in_kept_and_filtered'])} paper(s) "
+                       f"appearing in BOTH kept and filtered lists:\n")
+                for dup in comparison_data['duplicates_in_kept_and_filtered']:
+                    f.write(f"  • {dup['title'][:70]}...\n")
+                    f.write(f"    URL: {dup['url']}\n")
+                    f.write(f"    Exclusion category: {dup['category']}\n")
+                f.write("\n")
+            
+            # Overlap analysis
+            f.write("🔄 OVERLAP ANALYSIS\n")
+            f.write("-" * 80 + "\n")
+            f.write(f"Papers included by BOTH:       {comparison_data['both_included']:4d}\n")
+            f.write(f"Papers ONLY by keyword:        {comparison_data['only_keyword']:4d}\n")
+            f.write(f"Papers ONLY by AI:             {comparison_data['only_ai']:4d}\n\n")
+            f.write(f"✓ Agreement rate:              {comparison_data['agreement_rate']:.1f}%\n\n")
+            
+            # Examples of disagreement
+            if comparison_data.get('only_keyword_examples'):
+                f.write("=" * 80 + "\n")
+                f.write("PAPERS ONLY INCLUDED BY KEYWORD FILTER (sample)\n")
+                f.write("=" * 80 + "\n")
+                for paper in comparison_data['only_keyword_examples']:
+                    f.write(f"\n• {paper['title'][:70]}...\n")
+                    f.write(f"  Authors: {paper['authors']}\n")
+                    f.write(f"  URL: {paper['url']}\n")
+                f.write("\n")
+            
+            if comparison_data.get('only_ai_examples'):
+                f.write("=" * 80 + "\n")
+                f.write("PAPERS ONLY INCLUDED BY AI FILTER (sample)\n")
+                f.write("=" * 80 + "\n")
+                for paper in comparison_data['only_ai_examples']:
+                    f.write(f"\n• {paper['title'][:70]}...\n")
+                    f.write(f"  Authors: {paper['authors']}\n")
+                    f.write(f"  URL: {paper['url']}\n")
+                f.write("\n")
+            
+            # Exclusion categories
+            f.write("=" * 80 + "\n")
+            f.write("EXCLUSION CATEGORIES ANALYSIS\n")
+            f.write("=" * 80 + "\n\n")
+            
+            f.write("📋 KEYWORD FILTER EXCLUSIONS:\n")
+            f.write("-" * 80 + "\n")
+            for category, count in comparison_data['keyword_exclusions'].items():
+                f.write(f"  {category.replace('_', ' ').title():<20} {count:4d} papers\n")
+            f.write(f"  {'Total Excluded':<20} {comparison_data['keyword_excluded_total']:4d} papers\n\n")
+            
+            f.write("📋 AI FILTER EXCLUSIONS:\n")
+            f.write("-" * 80 + "\n")
+            for category, count in comparison_data['ai_exclusions'].items():
+                f.write(f"  {category.replace('_', ' ').title():<20} {count:4d} papers\n")
+            f.write(f"  {'Total Excluded':<20} {comparison_data['ai_excluded_total']:4d} papers\n\n")
+            
+            # Category comparison
+            if comparison_data.get('category_comparison'):
+                f.write("=" * 80 + "\n")
+                f.write("CATEGORY-BY-CATEGORY COMPARISON\n")
+                f.write("=" * 80 + "\n\n")
+                
+                for category, stats in comparison_data['category_comparison'].items():
+                    f.write(f"{category.replace('_', ' ').upper()}:\n")
+                    f.write(f"  Keyword filter: {stats['keyword']:4d} papers\n")
+                    f.write(f"  AI filter:      {stats['ai']:4d} papers\n")
+                    f.write(f"  Both excluded:  {stats['both']:4d} papers\n")
+                    f.write(f"  Only keyword:   {stats['only_keyword']:4d} papers\n")
+                    f.write(f"  Only AI:        {stats['only_ai']:4d} papers\n\n")
+            
+            # Summary
+            f.write("=" * 80 + "\n")
+            f.write("SUMMARY\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"\nThe keyword-based filter is "
+                   f"{'more' if comparison_data['keyword_kept'] > comparison_data['ai_kept'] else 'less'} "
+                   f"permissive than the AI filter.\n")
+            f.write(f"- Keyword filter kept {comparison_data['keyword_kept']} papers "
+                   f"({comparison_data['keyword_kept']/comparison_data['total_papers']*100:.1f}%)\n")
+            f.write(f"- AI filter kept {comparison_data['ai_kept']} papers "
+                   f"({comparison_data['ai_kept']/comparison_data['total_papers']*100:.1f}%)\n")
+            f.write(f"- Agreement on {comparison_data['both_included']} papers "
+                   f"({comparison_data['agreement_rate']:.1f}% of decisions)\n\n")
+            
+            if 'non_empirical' in comparison_data['ai_exclusions']:
+                f.write(f"The AI filter has an additional category: non-empirical "
+                       f"({comparison_data['ai_exclusions']['non_empirical']} papers)\n")
+        
+        logger.info(f"Saved filter comparison to {output_file}")
+        
+    except Exception as e:
+        logger.error(f"Failed to save filter comparison: {e}")
