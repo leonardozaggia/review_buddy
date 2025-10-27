@@ -167,6 +167,66 @@ def save_papers_bib(papers: List[Paper], output_file: Path):
         logger.error(f"Failed to save BibTeX: {e}")
 
 
+def save_failed_downloads(papers: List[Paper], output_dir: Path):
+    """
+    Save papers that failed to download to CSV and BibTeX files.
+    
+    Args:
+        papers: List of Paper objects that failed to download
+        output_dir: Directory to save the failed downloads files
+    """
+    if not papers:
+        logger.info("No failed downloads to save")
+        return
+    
+    try:
+        # Ensure output directory exists
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save CSV
+        csv_file = output_dir / "failed_downloads.csv"
+        with open(csv_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'Title', 'Authors', 'Journal', 'Year', 'DOI', 
+                'PMID', 'arXiv_ID', 'URL', 'Has_Abstract'
+            ])
+            
+            for paper in papers:
+                authors_str = '; '.join(paper.authors) if paper.authors else ''
+                year = paper.publication_date.year if paper.publication_date else ''
+                has_abstract = 'Yes' if paper.abstract else 'No'
+                
+                writer.writerow([
+                    paper.title,
+                    authors_str,
+                    paper.journal or '',
+                    year,
+                    paper.doi or '',
+                    paper.pmid or '',
+                    paper.arxiv_id or '',
+                    paper.url or '',
+                    has_abstract
+                ])
+        
+        logger.info(f"Saved {len(papers)} failed downloads to {csv_file}")
+        
+        # Save BibTeX
+        bib_file = output_dir / "failed_downloads.bib"
+        entries = []
+        for i, paper in enumerate(papers, 1):
+            entry = paper.to_bibtex_entry(f"failed_{i}")
+            entries.append(entry)
+        
+        with open(bib_file, 'w', encoding='utf-8') as f:
+            f.write('\n\n'.join(entries))
+        
+        logger.info(f"Saved {len(papers)} failed downloads to {bib_file}")
+        
+    except Exception as e:
+        logger.error(f"Failed to save failed downloads: {e}")
+
+
 def save_filter_comparison(comparison_data: Dict[str, Any], output_file: Path):
     """
     Save filter comparison results to a text file.

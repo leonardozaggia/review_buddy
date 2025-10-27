@@ -53,6 +53,9 @@ class PaperDownloader:
                 'scihub': 0
             }
         }
+        
+        # Track failed downloads
+        self.failed_papers = []
 
     def download_from_bib(self, bib_file: str):
         import bibtexparser
@@ -314,11 +317,14 @@ class PaperDownloader:
                 self.stats['by_method']['scihub'] += 1
                 return
         
-        # 6. Log failure
+        # 6. Log failure and store paper info
         self.logger.error(f"  ✗ FAILED: Could not download from any source")
         if not doi and not arxiv_id:
             self.logger.error(f"  → No DOI or arXiv ID available")
         self.stats['failed'] += 1
+        
+        # Store failed paper entry for later export
+        self._store_failed_paper(entry)
 
     def _download_pdf(self, pdf_url: str, dest_path: Path, retry_count: int = 0, max_retries: int = 3) -> bool:
         import requests
@@ -862,6 +868,77 @@ class PaperDownloader:
 
     def _safe_filename(self, name: str) -> str:
         return "".join(c if c.isalnum() else "_" for c in name)[:80]
+    
+    def _store_failed_paper(self, entry: dict):
+        """
+        Convert bibtex entry to Paper object and store in failed_papers list.
+        
+        Args:
+            entry: BibTeX entry dictionary
+        """
+        from datetime import date
+        
+        # Import Paper model (assuming it's in src.models)
+        try:
+            import sys
+            from pathlib import Path
+            # Add src to path if not already there
+            src_path = Path(__file__).parent.parent
+            if str(src_path) not in sys.path:
+                sys.path.insert(0, str(src_path))
+            from models import Paper
+        except ImportError:
+            self.logger.error("Failed to import Paper model - cannot store failed papers")
+            return
+        
+        try:
+            # Extract fields from bibtex entry
+            title = entry.get("title") or entry.get("TI") or "Unknown"
+            
+            # Parse authors
+            authors = []
+            author_field = entry.get("author") or entry.get("AU") or ""
+            if author_field:
+                # Split by "and" for bibtex format
+                authors = [a.strip() for a in author_field.split(" and ")]
+            
+            # Create Paper object
+            paper = Paper(title=title)
+            paper.authors = authors
+            paper.abstract = entry.get("abstract") or entry.get("AB")
+            paper.doi = entry.get("doi") or entry.get("DO")
+            paper.pmid = entry.get("pmid") or entry.get("PMID")
+            paper.arxiv_id = entry.get("arxiv_id")
+            paper.journal = entry.get("journal") or entry.get("JO")
+            paper.url = entry.get("url") or entry.get("UR")
+            paper.volume = entry.get("volume")
+            paper.issue = entry.get("number") or entry.get("issue")
+            paper.pages = entry.get("pages")
+            paper.publisher = entry.get("publisher")
+            paper.issn = entry.get("issn")
+            
+            # Parse year to date
+            year_str = entry.get("year")
+            if year_str:
+                try:
+                    year = int(year_str)
+                    paper.publication_date = date(year, 1, 1)
+                except (ValueError, TypeError):
+                    pass
+            
+            self.failed_papers.append(paper)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to store failed paper entry: {e}")
+    
+    def get_failed_papers(self):
+        """
+        Get list of papers that failed to download.
+        
+        Returns:
+            List of Paper objects
+        """
+        return self.failed_papers
     
     def _log_summary(self):
         """Log download session summary with statistics"""

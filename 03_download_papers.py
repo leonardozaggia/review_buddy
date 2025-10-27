@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.searchers.paper_downloader import PaperDownloader
+from src.utils import save_failed_downloads
 
 # Load environment variables
 load_dotenv()
@@ -80,6 +81,18 @@ def main():
     # Download papers
     downloader.download_from_bib(str(BIB_FILE))
     
+    # Get failed papers and save to CSV and BIB
+    failed_papers = downloader.get_failed_papers()
+    if failed_papers:
+        print()
+        print("=" * 80)
+        print("SAVING FAILED DOWNLOADS...")
+        print("=" * 80)
+        save_failed_downloads(failed_papers, OUTPUT_DIR)
+        print(f"Saved {len(failed_papers)} failed downloads to:")
+        print(f"  - {OUTPUT_DIR / 'failed_downloads.csv'}")
+        print(f"  - {OUTPUT_DIR / 'failed_downloads.bib'}")
+    
     # Count downloaded PDFs
     pdf_count = len([f for f in OUTPUT_DIR.iterdir() if f.suffix == ".pdf"])
     
@@ -88,8 +101,11 @@ def main():
     print("DOWNLOAD COMPLETE!")
     print("=" * 80)
     print(f"Downloaded: {pdf_count} PDFs")
+    print(f"Failed: {len(failed_papers)} papers")
     print(f"Location: {OUTPUT_DIR}")
     print(f"Log file: {OUTPUT_DIR / 'download.log'}")
+    if failed_papers:
+        print(f"Failed downloads list: {OUTPUT_DIR / 'failed_downloads.csv'}")
     print()
     print("Check the log file for detailed results and any errors.")
     
