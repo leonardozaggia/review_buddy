@@ -1,0 +1,448 @@
+🧠 COMPLETE PIPELINE: AI + Keyword Filtering Workflow
+🧬 OVERVIEW
+Step	Script	Input	Output	Purpose
+1️⃣	02_abstract_filter.py	raw_papers.csv	keyword_filtered.csv	Fast keyword screening
+2️⃣	extract_borderline.py	keyword_filtered.csv	borderline.csv	Select uncertain cases
+3️⃣	02_abstract_filter_AI.py	borderline.csv	ai_filtered.csv	AI (LLM) re-evaluation
+4️⃣	merge_filters.py	both	final_filtered_*.csv	Merge + version + diff + log
+—	(auto)	previous CSV	changed_decisions.csv	Git-like diff between runs
+—	(controller)	all above	—	run_full_pipeline.py runs all steps automatically
+📂 Folder Layout
+project_root/
+│
+├─ data/
+│   ├─ raw_papers.csv
+│   ├─ keyword_filtered.csv
+│   ├─ borderline.csv
+│   ├─ ai_filtered.csv
+│   └─ final_filtered_YYYYMMDD_HHMM.csv
+│
+├─ tools/
+│   ├─ extract_borderline.py
+│   ├─ merge_filters.py
+│
+├─ logs/
+│   ├─ merge_summary.txt
+│   └─ changed_decisions.csv
+│
+├─ 02_abstract_filter.py
+├─ 02_abstract_filter_AI.py
+└─ run_full_pipeline.py
+
+STEP 1️⃣ — 02_abstract_filter.py
+🎯 Purpose
+
+Perform fast keyword-based screening of all abstracts before any AI call.
+
+💾 Save as:
+02_abstract_filter.py
+
+#!/usr/bin/env python3
+"""
+02_abstract_filter.py
+---------------------
+Simple keyword-based filtering for abstracts.
+Flags papers as include/exclude/uncertain based on keyword hits.
+"""
+
+import pandas as pd, argparse, os
+
+def main():
+    p = argparse.ArgumentParser(description="Keyword-based abstract filtering.")
+    p.add_argument("--input", required=True)
+    p.add_argument("--output", required=True)
+    a = p.parse_args()
+
+    df = pd.read_csv(a.input)
+    df.columns = [c.lower() for c in df.columns]
+
+    include_terms = ["fMRI", "functional connectivity", "brain network", "graph analysis"]
+    exclude_terms = ["review", "survey", "meta-analysis"]
+
+    def keyword_filter(text):
+        t = str(text).lower()
+        inc = any(k.lower() in t for k in include_terms)
+        exc = any(k.lower() in t for k in exclude_terms)
+        if inc and not exc: return "include"
+        if exc and not inc: return "exclude"
+        return "uncertain"
+
+    df["decision"] = df["abstract"].apply(keyword_filter)
+    df.to_csv(a.output, index=False)
+    print(f"✅ Keyword filtering complete → {a.output} ({len(df)} records)")
+
+if __name__ == "__main__":
+    main()
+
+
+Run:
+
+python 02_abstract_filter.py --input data/raw_papers.csv --output data/keyword_filtered.csv
+
+STEP 2️⃣ — extract_borderline.py
+🎯 Purpose
+
+Extract only “uncertain” rows or borderline scores for AI re-evaluation.
+
+💾 Save as:
+tools/extract_borderline.py
+
+#!/usr/bin/env python3
+"""
+extract_borderline.py
+---------------------
+Selects uncertain or borderline papers for AI review.
+"""
+
+import pandas as pd, argparse, os
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--input", required=True)
+    p.add_argument("--output", required=True)
+    p.add_argument("--lower", type=float, default=0.4)
+    p.add_argument("--upper", type=float, default=0.6)
+    a = p.parse_args()
+
+    df = pd.read_csv(a.input)
+    cols = [c for c in df.columns if "score" in c.lower()]
+    if cols:
+        c = cols[0]
+        border = df[(df[c] >= a.lower) & (df[c] <= a.upper)]
+    else:
+        border = df[df["decision"].str.lower().isin(["uncertain","maybe","borderline"])]
+
+    os.makedirs(os.path.dirname(a.output) or ".", exist_ok=True)
+    border.to_csv(a.output, index=False)
+    print(f"✅ Extracted {len(border)} borderline papers → {a.output}")
+
+if __name__ == "__main__":
+    main()
+
+
+Run:
+
+python tools/extract_borderline.py --input data/keyword_filtered.csv --output data/borderline.csv
+
+STEP 3️⃣ — 02_abstract_filter_AI.py
+🎯 Purpose
+
+Use an LLM (e.g., GPT-4o mini or Claude Haiku) to make contextual inclusion/exclusion decisions.
+
+💾 Save as:
+02_abstract_filter_AI.py
+
+#!/usr/bin/env python3
+"""
+02_abstract_filter_AI.py
+------------------------
+Uses an AI model (API or local) to filter borderline abstracts.
+Supports auto-detection: API if OPENAI_API_KEY found, otherwise local model.
+"""
+
+import pandas as pd, argparse, os, openai, subprocess
+
+def call_local_llm(prompt):
+    """Use Ollama or another local LLM if no API key available."""
+    try:
+        result = subprocess.run(["ollama", "run", "mistral"], input=prompt.encode("utf-8"), capture_output=True)
+        return result.stdout.decode("utf-8").strip()
+    except Exception as e:
+        return f"[Local model error: {e}]"
+
+def ai_decide(text):
+    prompt = f"""You are an expert reviewer. 
+Decide whether this abstract is relevant for fMRI preprocessing or connectivity research.
+Answer with one word: include / exclude / uncertain.
+Abstract: {text}"""
+    if os.getenv("OPENAI_API_KEY"):
+        openai.api_key = os.getenv("OPENAI_API_KEY")
+        resp = openai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role":"system","content":"Expert paper screener"},{"role":"user","content":prompt}]
+        )
+        return resp.choices[0].message.content.strip()
+    else:
+        return call_local_llm(prompt)
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--input", required=True)
+    p.add_argument("--output", required=True)
+    a = p.parse_args()
+
+    df = pd.read_csv(a.input)
+    results = []
+    for _, row in df.iterrows():
+        decision = ai_decide(row["abstract"])
+        results.append(decision)
+    df["decision_ai"] = results
+    df.to_csv(a.output, index=False)
+    print(f"✅ AI filtering complete → {a.output}")
+
+if __name__ == "__main__":
+    main()
+
+
+Run locally (API mode):
+
+export OPENAI_API_KEY="your_key_here"
+python 02_abstract_filter_AI.py --input data/borderline.csv --output data/ai_filtered.csv
+
+
+Run on HPC (local model mode):
+
+python 02_abstract_filter_AI.py --input data/borderline.csv --output data/ai_filtered.csv
+
+
+(It will detect no API key and use Ollama or Mistral automatically.)
+
+STEP 4️⃣ — merge_filters.py
+🎯 Purpose
+
+Merge keyword + AI results, version outputs, append log, and generate diffs.
+
+💾 Save as:
+tools/merge_filters.py
+
+#!/usr/bin/env python3
+"""
+merge_filters.py
+----------------
+Merges keyword and AI results, versions outputs, appends summary log,
+and saves diff of changed decisions.
+"""
+
+import pandas as pd, argparse, os, glob
+from datetime import datetime
+
+def find_latest(prefix):
+    files = sorted(glob.glob(f"{prefix}_*.csv"))
+    return files[-1] if files else None
+
+def diff_versions(prev_file, new_df, key, out_csv):
+    try:
+        prev = pd.read_csv(prev_file)
+        prev[key] = prev[key].astype(str).str.lower().str.strip()
+        new_df[key] = new_df[key].astype(str).str.lower().str.strip()
+        merged = prev[[key,"final_decision"]].merge(
+            new_df[[key,"final_decision"]], on=key, suffixes=("_old","_new")
+        )
+        changed = merged[merged["final_decision_old"] != merged["final_decision_new"]]
+        os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)
+        changed.to_csv(out_csv, index=False)
+        return len(changed)
+    except Exception:
+        return 0
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--keyword", required=True)
+    p.add_argument("--ai", required=True)
+    p.add_argument("--output_prefix", default="data/final_filtered")
+    p.add_argument("--log", default="logs/merge_summary.txt")
+    p.add_argument("--changes", default="logs/changed_decisions.csv")
+    a = p.parse_args()
+
+    df_kw, df_ai = pd.read_csv(a.keyword), pd.read_csv(a.ai)
+    key = "title" if "title" in df_kw and "title" in df_ai else "doi"
+
+    df_kw[key] = df_kw[key].astype(str).str.lower().str.strip()
+    df_ai[key] = df_ai[key].astype(str).str.lower().str.strip()
+    merged = df_kw.merge(df_ai, on=key, how="left", suffixes=("_kw","_ai"))
+
+    decision_kw = next(c for c in merged.columns if "decision_kw" in c)
+    decision_ai = next(c for c in merged.columns if "decision_ai" in c)
+    reason_cols = [c for c in merged.columns if "reason" in c.lower() or "comment" in c.lower()]
+    reason_col = reason_cols[0] if reason_cols else None
+
+    def resolve(r):
+        kw, ai = str(r.get(decision_kw,"")).lower(), str(r.get(decision_ai,"")).lower()
+        return ai if kw in ["uncertain","maybe","borderline","","nan"] else kw
+
+    merged["final_decision"] = merged.apply(resolve, axis=1)
+    merged["ai_reasoning"] = merged[reason_col] if reason_col else ""
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    out_file = f"{a.output_prefix}_{timestamp}.csv"
+    os.makedirs(os.path.dirname(out_file), exist_ok=True)
+    merged.to_csv(out_file, index=False)
+
+    prev_file = find_latest(a.output_prefix)
+    changed = diff_versions(prev_file, merged, key, a.changes) if prev_file and prev_file!=out_file else 0
+
+    total = len(merged)
+    summary = [
+        "",
+        "="*70,
+        f"Merge Summary — {datetime.now():%Y-%m-%d %H:%M:%S}",
+        "="*70,
+        f"Keyword: {a.keyword}",
+        f"AI: {a.ai}",
+        f"Output: {out_file}",
+        f"Total: {total}",
+        f"Changed vs previous: {changed}",
+        "-"*70, ""
+    ]
+    os.makedirs(os.path.dirname(a.log) or ".", exist_ok=True)
+    with open(a.log,"a",encoding="utf-8") as f: f.write("\n".join(summary))
+    print(f"✅ Merged output → {out_file}")
+    print(f"🔁 Changes: {changed} (see {a.changes})")
+
+if __name__ == "__main__":
+    main()
+
+
+Run:
+
+python tools/merge_filters.py \
+  --keyword data/keyword_filtered.csv \
+  --ai data/ai_filtered.csv \
+  --output_prefix data/final_filtered \
+  --log logs/merge_summary.txt \
+  --changes logs/changed_decisions.csv
+
+🧩 MASTER SCRIPT — run_full_pipeline.py
+🎯 Purpose
+
+Run all steps automatically in sequence (cross-platform).
+
+💾 Save as:
+run_full_pipeline.py
+
+#!/usr/bin/env python3
+"""
+run_full_pipeline.py
+--------------------
+Runs the complete 4-step pipeline automatically.
+"""
+
+import subprocess, os
+from datetime import datetime
+
+paths = {
+    "RAW": "data/raw_papers.csv",
+    "KEY": "data/keyword_filtered.csv",
+    "BORDER": "data/borderline.csv",
+    "AI": "data/ai_filtered.csv",
+    "PREFIX": "data/final_filtered",
+    "LOG": "logs/merge_summary.txt",
+    "CHANGES": "logs/changed_decisions.csv"
+}
+
+def run(desc, cmd):
+    print(f"\n🚀 {desc}")
+    print("   ➜", " ".join(cmd))
+    start = datetime.now()
+    try:
+        subprocess.run(cmd, check=True)
+        print(f"✅ Done ({(datetime.now()-start).total_seconds():.1f}s)")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed: {desc}\n{e}")
+        raise
+
+def main():
+    os.makedirs("data", exist_ok=True)
+    os.makedirs("logs", exist_ok=True)
+
+    print("="*70)
+    print(f"AI + Keyword Filtering Pipeline — {datetime.now():%Y-%m-%d %H:%M:%S}")
+    print("="*70)
+
+    run("Step 1: Keyword Filtering",
+        ["python","02_abstract_filter.py","--input",paths["RAW"],"--output",paths["KEY"]])
+    run("Step 2: Extract Borderline Cases",
+        ["python","tools/extract_borderline.py","--input",paths["KEY"],"--output",paths["BORDER"]])
+    run("Step 3: AI Filtering",
+        ["python","02_abstract_filter_AI.py","--input",paths["BORDER"],"--output",paths["AI"]])
+    run("Step 4: Merge + Version + Diff Summary",
+        ["python","tools/merge_filters.py",
+         "--keyword",paths["KEY"],"--ai",paths["AI"],
+         "--output_prefix",paths["PREFIX"],
+         "--log",paths["LOG"],"--changes",paths["CHANGES"]])
+
+    print("="*70)
+    print(f"🏁 Pipeline completed successfully — {datetime.now():%H:%M:%S}")
+    print("="*70)
+
+if __name__ == "__main__":
+    main()
+
+
+Run entire workflow:
+
+python run_full_pipeline.py
+
+⚙️ HOW TO RUN
+🔹 On Your Laptop (API mode)
+
+Ensure data/raw_papers.csv exists (with title, abstract, ...).
+
+Install dependencies:
+
+pip install pandas openai
+
+
+Set your key:
+
+export OPENAI_API_KEY="your_key_here"     # or setx for Windows
+
+
+Run the pipeline:
+
+python run_full_pipeline.py
+
+🔹 On HPC (Local Model mode)
+
+Load Python/conda module and create env:
+
+module load anaconda
+conda create -n ai_filter python=3.10
+conda activate ai_filter
+pip install pandas openai
+
+
+Install Ollama or HuggingFace models (as configured).
+
+Submit job:
+
+sbatch run_pipeline.slurm
+
+
+(use the earlier Slurm example)
+
+📊 OUTPUTS
+File	Purpose
+data/keyword_filtered.csv	Keyword screening results
+data/borderline.csv	Uncertain papers for AI
+data/ai_filtered.csv	AI-reviewed subset
+data/final_filtered_YYYYMMDD_HHMM.csv	Combined, versioned final dataset
+logs/merge_summary.txt	Append-only summary (Git-like log)
+logs/changed_decisions.csv	Diff list of changed decisions
+🧾 Example Final Console Output
+======================================================================
+AI + Keyword Filtering Pipeline — 2025-10-26 23:12:05
+======================================================================
+
+🚀 Step 1: Keyword Filtering
+✅ Done (4.1s)
+🚀 Step 2: Extract Borderline Cases
+✅ Done (0.7s)
+🚀 Step 3: AI Filtering
+✅ Done (52.3s)
+🚀 Step 4: Merge + Version + Diff Summary
+✅ Merged output → data/final_filtered_20251026_2312.csv
+🔁 Changes: 12 (see logs/changed_decisions.csv)
+======================================================================
+🏁 Pipeline completed successfully — 23:13:00
+======================================================================
+
+✅ Summary
+
+Plug-and-play: all scripts ready.
+
+Cross-platform: laptop + HPC compatible.
+
+Auditable: versioned CSVs + diff logs.
+
+Expandable: can plug in BrainGPT, Mixtral, or Ollama later.
