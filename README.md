@@ -31,6 +31,32 @@ python 02_abstract_filter.py    # Filter by abstract (optional)
 python 03_download_papers.py    # Download PDFs
 ```
 
+**Optional: AI-powered filtering with Ollama** 
+
+For more sophisticated filtering, use `02_abstract_filter_ai.py` with a local LLM (Ollama). This provides:
+- Natural language filter definitions (no regex patterns needed)
+- Confidence scores and reasoning for each decision
+- Customizable filters for your specific review criteria
+
+**Quick setup:**
+```bash
+# 1. Install Ollama (if not already installed)
+# Visit https://ollama.ai and follow installation instructions for your OS
+
+# 2. Pull a model (one-time)
+ollama pull llama3.1:8b
+
+# 3. Start Ollama server (in a separate terminal)
+ollama serve
+
+# 4. Run AI filtering
+python 02_abstract_filter_ai.py
+```
+
+The script will cache LLM responses to avoid redundant API calls. First run may take 10-30 minutes depending on the number of papers and your hardware. Subsequent runs with cached papers are much faster.
+
+**HPC/Cluster users**: See `run_filter_hpc.sh` for a SLURM job script example that manages the Ollama server automatically.
+
 Results in `results/` folder: `papers.csv`, `references.bib`, `references.ris`, `pdfs/`
 
 **Note:** The download script automatically uses filtered results (`references_filtered.bib`) if available, otherwise uses original results (`references.bib`).
@@ -101,6 +127,40 @@ QUERY = Path("query.txt").read_text(encoding="utf-8").strip()
 
 ## Customization
 
+**AI Filtering** (`02_abstract_filter_ai.py`):
+
+Customize filters by editing the `FILTERS_CONFIG` dictionary in the script:
+
+```python
+FILTERS_CONFIG = {
+    'epilepsy': {
+        'enabled': True,
+        'prompt': "Does this paper focus primarily on epileptic spikes or seizure detection?",
+        'description': "Papers about epilepsy-related spike detection"
+    },
+    'your_custom_filter': {
+        'enabled': True,
+        'prompt': "Your natural language question about the paper",
+        'description': "Brief description for logs"
+    },
+}
+```
+
+**Model Configuration:**
+```python
+AI_CONFIG = {
+    'model': 'llama3.1:8b',           # Ollama model (change if needed)
+    'confidence_threshold': 0.5,      # Min confidence to filter (0.0-1.0)
+    'temperature': 0.1,               # Low for consistency
+    'cache_responses': True,          # Avoid redundant LLM calls
+}
+```
+
+**System requirements:**
+- RAM: 8GB minimum (16GB+ recommended for 8B models)
+- Models: Any Ollama-compatible model (`llama3.1`, `mistral`, `phi3`, etc.)
+- Speed: ~10-30 papers/minute on CPU (faster with GPU)
+
 **Search settings** (`01_fetch_metadata.py`):
 ```python
 # Inline query
@@ -145,14 +205,17 @@ USE_SCIHUB = False  # Enable Sci-Hub fallback (use responsibly)
 ```
 review_buddy/
 ├── 01_fetch_metadata.py         # Search papers
-├── 02_abstract_filter.py        # Filter by abstract (optional)
+├── 02_abstract_filter.py        # Keyword-based filtering (optional)
+├── 02_abstract_filter_ai.py     # AI/LLM-based filtering (optional)
 ├── 03_download_papers.py        # Download PDFs
 ├── .env.example                 # Configuration template
 ├── src/
 │   ├── config.py               # Config management
 │   ├── models.py               # Paper data model
 │   ├── paper_searcher.py       # Search coordinator
-│   ├── abstract_filter.py      # Abstract-based filtering
+│   ├── abstract_filter.py      # Keyword filtering logic
+│   ├── ai_abstract_filter.py   # AI filtering logic
+│   ├── llm_client.py           # Ollama LLM client
 │   └── searchers/              # Source implementations
 │       ├── scopus_searcher.py
 │       ├── pubmed_searcher.py
@@ -163,9 +226,12 @@ review_buddy/
 ├── docs/                        # Documentation
 └── results/                     # Output (auto-created)
     ├── papers.csv
-    ├── papers_filtered.csv     # After filtering
+    ├── papers_filtered.csv     # After keyword filtering
+    ├── papers_filtered_ai.csv  # After AI filtering
     ├── references.bib
-    ├── references_filtered.bib # After filtering
+    ├── references_filtered.bib # After keyword filtering
+    ├── references_filtered_ai.bib  # After AI filtering
+    ├── ai_cache/               # Cached LLM responses
     └── pdfs/
 ```
 

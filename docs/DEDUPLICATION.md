@@ -51,3 +51,13 @@ The primary paper retains all its fields. Missing fields are filled from duplica
 - arXiv: "Deep Learning" (2024) ❌
 - PubMed: "Deep Learning" (2023) ✓ PRIMARY
 - **Result**: PubMed primary (PubMed priority) → arXiv data merged
+
+**Script `04_deduplicate_extra.py`**
+For advanced users, an additional deduplication script `04_deduplicate_extra.py` is provided. This can be used to deduplicate CSV or BibTeX files using the same logic as above, especially useful if multiple files were appended together.
+
+Usage:
+```bash
+python 04_deduplicate_extra.py path/to/papers.csv
+python 04_deduplicate_extra.py path/to/references.bib
+```
+It can also be used to check missed duplicates, it will identify them, report them, and merge accordingly.

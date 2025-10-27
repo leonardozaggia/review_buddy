@@ -211,6 +211,16 @@ python 03_download_papers.py
 
 Now you'll download only 104 papers instead of 250!
 
+### AI-powered filtering (cluster note)
+
+The repository also includes an AI-powered filter (`02_abstract_filter_AI.py`) which uses a local LLM (we use Ollama in our examples). Large models can be resource intensive — GPU nodes or a short HPC job are recommended for reasonable throughput. See `run_filter_hpc.sh` for a ready-made SLURM job script; minimally you should:
+
+- Ensure Ollama is installed and a model is pulled (e.g., `ollama pull llama3.1`).
+- Run on a node with sufficient RAM/CPU or a GPU if using a larger model.
+- Use the provided `run_filter_hpc.sh` (or `salloc`/`sbatch`) to start Ollama, run the AI filter, and stop the server cleanly.
+
+This step is optional — the keyword-based `02_abstract_filter.py` works without these dependencies.
+
 ## Result Structure
 
 ```
