@@ -4,6 +4,7 @@ Main paper searcher - coordinates all search sources and provides unified interf
 
 import logging
 from typing import List, Dict, Optional, Set
+from datetime import datetime, date
 from pathlib import Path
 
 from .models import Paper
@@ -88,10 +89,44 @@ class PaperSearcher:
         if 'ieee' in sources and self.config.has_ieee_access():
             self._search_ieee(query, year_from, year_to)
         
-        # Convert to list
         papers_list = list(self.papers.values())
-        
+
+        # Enforce year filter robustly across all sources (post-hoc safety net)
+        if year_from or year_to:
+            filtered = []
+            filtered_out_count = 0
+            no_date_count = 0
+            
+            for p in papers_list:
+                pd = getattr(p, "publication_date", None)
+                if pd and isinstance(pd, date):
+                    y = pd.year
+                    if year_from and y < year_from:
+                        logger.debug(f"Post-filter: Removed (too old): {y} < {year_from} | {p.title[:80]}")
+                        filtered_out_count += 1
+                        continue
+                    if year_to and y > year_to:
+                        logger.debug(f"Post-filter: Removed (too new): {y} > {year_to} | {p.title[:80]}")
+                        filtered_out_count += 1
+                        continue
+                    filtered.append(p)
+                else:
+                    # No parsed date: drop by default to make year filter strict.
+                    logger.debug(f"Post-filter: Removed (no date): {p.title[:80]}")
+                    no_date_count += 1
+                    continue
+
+            logger.info(f"Post-filter year validation: {len(filtered)} papers in range {year_from or 'any'} to {year_to or 'any'}")
+            if filtered_out_count > 0:
+                logger.info(f"Post-filter: Removed {filtered_out_count} papers outside year range")
+            if no_date_count > 0:
+                logger.info(f"Post-filter: Removed {no_date_count} papers with no publication date")
+            papers_list = filtered
+        else:
+            logger.info(f"No year filtering applied")
+
         logger.info(f"\nTotal unique papers found: {len(papers_list)}")
+
         return papers_list
     
     def _search_scopus(self, query: str, year_from: Optional[int], year_to: Optional[int]):

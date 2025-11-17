@@ -57,23 +57,25 @@ class ScholarSearcher:
         # This is crucial for queries read from .txt files
         normalized_query = ' '.join(query.split())
         
-        # Build query with year filters
-        scholar_query = normalized_query
+        logger.info(f"Searching Google Scholar with query: {normalized_query}")
         if year_from or year_to:
-            year_from_str = str(year_from or 1900)
-            year_to_str = str(year_to or datetime.now().year)
-            scholar_query += f" after:{year_from_str} before:{year_to_str}"
-        
-        logger.info(f"Searching Google Scholar with query: {scholar_query}")
+            logger.info(f"Google Scholar: Year range filter: {year_from or 'any'} to {year_to or 'any'}")
         
         # Note: Google Scholar doesn't provide total result count upfront
         # We'll just report progress as we fetch
         
         try:
-            # Search with scholarly
-            search_results = self.scholarly.search_pubs(scholar_query)
+            # Search with scholarly using built-in year_low and year_high parameters
+            search_results = self.scholarly.search_pubs(
+                normalized_query,
+                year_low=year_from,
+                year_high=year_to
+            )
             
             count = 0
+            filtered_out_count = 0
+            no_date_count = 0
+            
             for result in search_results:
                 if count >= self.max_results:
                     break
@@ -81,6 +83,24 @@ class ScholarSearcher:
                 try:
                     paper = self._parse_result(result)
                     if paper:
+                        # Validate year filtering (scholarly's year_low/year_high should handle this,
+                        # but we double-check as a safety measure)
+                        if year_from or year_to:
+                            if paper.publication_date:
+                                year = paper.publication_date.year
+                                if year_from and year < year_from:
+                                    logger.debug(f"Google Scholar: Filtered out (too old): {year} < {year_from} | {paper.title[:80]}")
+                                    filtered_out_count += 1
+                                    continue
+                                if year_to and year > year_to:
+                                    logger.debug(f"Google Scholar: Filtered out (too new): {year} > {year_to} | {paper.title[:80]}")
+                                    filtered_out_count += 1
+                                    continue
+                            else:
+                                logger.debug(f"Google Scholar: No date found, skipping: {paper.title[:80]}")
+                                no_date_count += 1
+                                continue
+                        
                         papers.append(paper)
                         count += 1
                         
@@ -98,6 +118,12 @@ class ScholarSearcher:
             logger.error(f"Google Scholar search failed: {e}")
         
         logger.info(f"Google Scholar: Successfully retrieved {len(papers)} papers")
+        if year_from or year_to:
+            logger.info(f"Google Scholar: Year filter applied - range: {year_from or 'any'} to {year_to or 'any'}")
+            if filtered_out_count > 0:
+                logger.info(f"Google Scholar: Filtered out {filtered_out_count} papers outside year range")
+            if no_date_count > 0:
+                logger.info(f"Google Scholar: Skipped {no_date_count} papers with no publication date")
         return papers
     
     def _parse_result(self, result: dict) -> Optional[Paper]:

@@ -63,7 +63,24 @@ class ArxivSearcher:
         # arXiv API query format: search in all fields
         arxiv_query = f"all:{arxiv_safe_query}"
         
+        # Add date filtering to the query if year range is specified
+        # arXiv uses submittedDate with format [YYYYMMDDTTTT TO YYYYMMDDTTTT]
+        if year_from or year_to:
+            from_date = f"{year_from or 1900}01010000"
+            to_date = f"{year_to or 2099}12312359"
+            arxiv_query += f" AND submittedDate:[{from_date} TO {to_date}]"
+            logger.debug(f"arXiv: Added date filter to query: submittedDate:[{from_date} TO {to_date}]")
+        
         logger.info(f"Searching arXiv with query: {arxiv_query[:200]}...")  # Truncate for readability
+        
+        # Determine sort order based on year filter
+        # If filtering by year_from, sort ascending (oldest first) to hit the range faster
+        # Otherwise sort descending (newest first) for most recent results
+        if year_from:
+            sort_order = 'ascending'
+            logger.debug(f"arXiv: Using ascending sort to reach year_from={year_from}")
+        else:
+            sort_order = 'descending'
         
         # Fetch in batches
         start = 0
@@ -78,7 +95,7 @@ class ArxivSearcher:
                     'start': start,
                     'max_results': min(batch_size, self.max_results - len(papers)),
                     'sortBy': 'submittedDate',
-                    'sortOrder': 'descending'
+                    'sortOrder': sort_order
                 }
                 
                 response = self.session.get(
@@ -110,21 +127,44 @@ class ArxivSearcher:
                         max_to_fetch = min(total_results, self.max_results)
                         progress = create_progress_tracker(max_to_fetch, "arXiv")
                 
+                filtered_out_count = 0
+                fetched_count = 0
+                papers_too_new = 0  # Track if we've exceeded year_to
+                
                 for entry in entries:
                     paper = self._parse_entry(entry, ns)
                     if paper:
+                        fetched_count += 1
                         # Apply year filter
                         if year_from or year_to:
                             if paper.publication_date:
                                 year = paper.publication_date.year
                                 if year_from and year < year_from:
+                                    logger.debug(f"arXiv: Filtered out (too old): {year} < {year_from} | {paper.title[:80]}")
+                                    filtered_out_count += 1
                                     continue
                                 if year_to and year > year_to:
+                                    logger.debug(f"arXiv: Filtered out (too new): {year} > {year_to} | {paper.title[:80]}")
+                                    filtered_out_count += 1
+                                    papers_too_new += 1
                                     continue
+                            else:
+                                logger.debug(f"arXiv: Filtered out (no date): {paper.title[:80]}")
+                                filtered_out_count += 1
+                                continue
                         
                         papers.append(paper)
                         if progress:
                             progress.update(1)
+                
+                if filtered_out_count > 0:
+                    logger.info(f"arXiv batch: fetched {fetched_count}, accepted {fetched_count - filtered_out_count}, filtered out {filtered_out_count}")
+                
+                # If we're getting too many papers beyond year_to and sorting ascending, we can stop
+                # This happens when sorting ascending and we've moved past the desired range
+                if year_to and sort_order == 'descending' and papers_too_new > batch_size * 0.8:
+                    logger.info(f"arXiv: Stopping early - most papers now exceed year_to={year_to}")
+                    break
                 
                 # Check if we should continue
                 if len(entries) < batch_size or len(papers) >= self.max_results:
@@ -143,7 +183,8 @@ class ArxivSearcher:
             progress.close()
         
         logger.info(f"arXiv: Successfully retrieved {len(papers)} papers")
-        logger.info(f"arXiv: {int(self.max_results)-len(papers)} out of {self.max_results} where published before {year_from}")
+        if year_from or year_to:
+            logger.info(f"arXiv: Year filter applied - range: {year_from or 'any'} to {year_to or 'any'}")
         return papers
     
     def _parse_entry(self, entry: ET.Element, ns: dict) -> Optional[Paper]:
