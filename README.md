@@ -7,7 +7,7 @@ Search and download academic papers from multiple sources with intelligent fallb
 - **5 Search Sources**: Scopus, PubMed, arXiv, Google Scholar, IEEE Xplore
 - **Smart Deduplication**: Merges results across sources automatically
 - **Abstract-Based Filtering**: Remove unwanted papers (non-English, animal studies, reviews, etc.)
-- **10+ Download Methods**: arXiv, bioRxiv, Unpaywall, PMC, publisher patterns, HTML scraping, Crossref, Sci-Hub (optional)
+- **11+ Download Methods**: Zotero Translation Server, arXiv, bioRxiv, Unpaywall, PMC, publisher patterns, HTML scraping, Crossref, Sci-Hub (optional)
 - **Multiple Formats**: BibTeX, RIS, CSV export
 - **Production Ready**: Comprehensive error handling and logging
 
@@ -112,9 +112,16 @@ QUERY = Path("query.txt").read_text(encoding="utf-8").strip()
 
 ## PDF Download
 
-**10+ intelligent strategies with automatic fallback:**
+**11+ intelligent strategies with automatic fallback:**
 
-1. Direct PDF links → 2. arXiv → 3. bioRxiv/medRxiv → 4. Unpaywall API → 5. Crossref → 6. PubMed Central (US & Europe) → 7. Publisher patterns (MDPI, Frontiers, Nature, IEEE, ScienceDirect, Springer, PLOS) → 8. ResearchGate/Academia.edu → 9. HTML scraping → 10. Sci-Hub (optional)
+1. Direct PDF links → 2. Zotero Translation Server → 3. arXiv → 4. bioRxiv/medRxiv → 5. Unpaywall API → 6. Crossref → 7. PubMed Central (US & Europe) → 8. Publisher patterns (MDPI, Frontiers, Nature, IEEE, ScienceDirect, Springer, PLOS) → 9. ResearchGate/Academia.edu → 10. HTML scraping → 11. Sci-Hub (optional)
+
+**Optional: Zotero Translation Server** (for enhanced PDF discovery):
+```bash
+# Start the server (one-time setup)
+docker run -d -p 1969:1969 --name zotero-translation zotero/translation-server
+```
+See [docs/ZOTERO_SETUP.md](docs/ZOTERO_SETUP.md) for details.
 
 **Expected success rates:**
 - arXiv papers: 95%+

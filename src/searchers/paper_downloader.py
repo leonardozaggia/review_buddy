@@ -16,10 +16,19 @@ class DownloadError(Exception):
     pass
 
 class PaperDownloader:
-    def __init__(self, output_dir: str, use_scihub: bool = False, unpaywall_email: Optional[str] = None):
+    def __init__(
+        self, 
+        output_dir: str, 
+        use_scihub: bool = False, 
+        unpaywall_email: Optional[str] = None,
+        use_zotero: bool = True,
+        zotero_server_url: Optional[str] = None
+    ):
         self.output_dir = Path(output_dir)
         self.use_scihub = use_scihub
         self.unpaywall_email = unpaywall_email
+        self.use_zotero = use_zotero
+        self.zotero_server_url = zotero_server_url or "http://localhost:1969"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Set up logger with better formatting
@@ -39,6 +48,24 @@ class PaperDownloader:
         console.setFormatter(logging.Formatter('[%(levelname)s] %(message)s'))
         self.logger.addHandler(console)
         
+        # Initialize Zotero Translation Client (if enabled)
+        self.zotero_client = None
+        if self.use_zotero:
+            try:
+                from .zotero_client import ZoteroTranslationClient
+                self.zotero_client = ZoteroTranslationClient(
+                    server_url=self.zotero_server_url,
+                    timeout=30
+                )
+                if self.zotero_client.is_available():
+                    self.logger.info(f"Zotero Translation Server available at {self.zotero_server_url}")
+                else:
+                    self.logger.warning(f"Zotero Translation Server not available at {self.zotero_server_url}")
+                    self.logger.warning("  → Zotero will be skipped. To enable: docker run -d -p 1969:1969 zotero/translation-server")
+            except ImportError as e:
+                self.logger.warning(f"Failed to import Zotero client: {e}")
+                self.zotero_client = None
+        
         # Statistics
         self.stats = {
             'total': 0,
@@ -48,6 +75,7 @@ class PaperDownloader:
             'dois_found': 0,  # DOIs found via Crossref lookup
             'by_method': {
                 'direct_pdf': 0,
+                'zotero': 0,
                 'arxiv': 0,
                 'unpaywall': 0,
                 'scihub': 0
@@ -65,6 +93,7 @@ class PaperDownloader:
         self.logger.info(f"NEW DOWNLOAD SESSION STARTED")
         self.logger.info(f"Input file: {bib_file}")
         self.logger.info(f"Output directory: {self.output_dir}")
+        self.logger.info(f"Zotero enabled: {self.use_zotero and self.zotero_client is not None}")
         self.logger.info(f"Unpaywall enabled: {bool(self.unpaywall_email)}")
         self.logger.info(f"Sci-Hub enabled: {self.use_scihub}")
         self.logger.info("="*80)
@@ -92,6 +121,7 @@ class PaperDownloader:
         self.logger.info(f"NEW DOWNLOAD SESSION STARTED")
         self.logger.info(f"Input file: {ris_file}")
         self.logger.info(f"Output directory: {self.output_dir}")
+        self.logger.info(f"Zotero enabled: {self.use_zotero and self.zotero_client is not None}")
         self.logger.info(f"Unpaywall enabled: {bool(self.unpaywall_email)}")
         self.logger.info(f"Sci-Hub enabled: {self.use_scihub}")
         self.logger.info("="*80)
@@ -205,6 +235,21 @@ class PaperDownloader:
                 self.stats['success'] += 1
                 self.stats['by_method']['direct_pdf'] += 1
                 return
+        
+        # 1.5. Try Zotero Translation Server
+        if self.use_zotero and self.zotero_client and self.zotero_client.is_available():
+            self.logger.info(f"  → Trying Zotero Translation Server...")
+            try:
+                pdf_url = self._get_zotero_pdf(entry)
+                if pdf_url:
+                    self.logger.info(f"  → Found via Zotero: {pdf_url[:80]}")
+                    if self._download_pdf(pdf_url, dest_path):
+                        self.logger.info(f"  ✓ SUCCESS via Zotero Translation Server")
+                        self.stats['success'] += 1
+                        self.stats['by_method']['zotero'] = self.stats['by_method'].get('zotero', 0) + 1
+                        return
+            except Exception as e:
+                self.logger.debug(f"  → Zotero error: {e}")
         
         # 2. Try arXiv direct (check arXiv ID first, then DOI, then URL)
         if arxiv_id or (doi and "arxiv" in doi.lower()) or (url and "arxiv" in url.lower()):
@@ -518,6 +563,65 @@ class PaperDownloader:
             pdf_url = f"https://arxiv.org/abs/{arxiv_id}"
             self.logger.info(f"Constructed arXiv abstract URL (will redirect to PDF): {pdf_url}")
             return pdf_url
+        
+        return None
+    
+    def _get_zotero_pdf(self, entry: dict) -> Optional[str]:
+        """
+        Try to get PDF URL using Zotero Translation Server.
+        
+        The Zotero Translation Server can extract metadata and PDF links
+        from DOIs, PMIDs, arXiv IDs, and URLs using its extensive library
+        of translators.
+        
+        Args:
+            entry: BibTeX/RIS entry dictionary
+            
+        Returns:
+            PDF URL if found, None otherwise
+        """
+        if not self.zotero_client:
+            return None
+        
+        # Extract identifiers from entry
+        doi = entry.get("doi") or entry.get("DO")
+        pmid = entry.get("pmid") or entry.get("PMID")
+        arxiv_id = entry.get("arxiv_id")
+        url = entry.get("url") or entry.get("UR")
+        
+        try:
+            metadata = None
+            
+            # Try DOI first (most reliable)
+            if doi:
+                self.logger.debug(f"  → Zotero: trying DOI {doi}")
+                metadata = self.zotero_client.translate_identifier(doi, "doi")
+            
+            # Try PMID
+            if not metadata and pmid:
+                self.logger.debug(f"  → Zotero: trying PMID {pmid}")
+                metadata = self.zotero_client.translate_identifier(pmid, "pmid")
+            
+            # Try arXiv ID
+            if not metadata and arxiv_id:
+                self.logger.debug(f"  → Zotero: trying arXiv {arxiv_id}")
+                metadata = self.zotero_client.translate_identifier(arxiv_id, "arxiv")
+            
+            # Try URL as last resort
+            if not metadata and url:
+                self.logger.debug(f"  → Zotero: trying URL {url[:80]}")
+                metadata = self.zotero_client.translate_url(url)
+            
+            # Extract PDF URL from metadata
+            if metadata:
+                pdf_url = self.zotero_client.extract_pdf_url(metadata)
+                if pdf_url:
+                    return pdf_url
+                else:
+                    self.logger.debug(f"  → Zotero found metadata but no PDF attachment")
+            
+        except Exception as e:
+            self.logger.debug(f"  → Zotero error: {e}")
         
         return None
     

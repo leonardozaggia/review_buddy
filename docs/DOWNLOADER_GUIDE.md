@@ -8,15 +8,16 @@ The Paper Downloader module automatically downloads PDFs for papers from your se
 
 ✅ **Multi-strategy download approach with automatic fallback:**
 1. Direct PDF links (if available in metadata)
-2. arXiv PDFs (fully automatic, no API key needed)
-3. bioRxiv/medRxiv (for biomedical preprints)
-4. Unpaywall (open access papers via DOI)
-5. Crossref API (full-text links)
-6. PubMed Central (US & Europe mirrors)
-7. Publisher-specific patterns (MDPI, Frontiers, Nature, IEEE, ScienceDirect, Springer, PLOS)
-8. ResearchGate & Academia.edu (academic social networks)
-9. HTML scraping (extracts PDF links from paper pages)
-10. Sci-Hub (optional fallback for paywalled papers)
+2. Zotero Translation Server (optional, uses extensive translator library)
+3. arXiv PDFs (fully automatic, no API key needed)
+4. bioRxiv/medRxiv (for biomedical preprints)
+5. Unpaywall (open access papers via DOI)
+6. Crossref API (full-text links)
+7. PubMed Central (US & Europe mirrors)
+8. Publisher-specific patterns (MDPI, Frontiers, Nature, IEEE, ScienceDirect, Springer, PLOS)
+9. ResearchGate & Academia.edu (academic social networks)
+10. HTML scraping (extracts PDF links from paper pages)
+11. Sci-Hub (optional fallback for paywalled papers)
 
 ✅ **Smart handling:**
 - DOI lookup via Crossref (if DOI missing)
@@ -100,6 +101,14 @@ The downloader attempts strategies in the following order:
 - **When**: Paper metadata includes a direct PDF URL
 - **Success Rate**: High for arXiv, preprints
 - **API Key**: None required
+
+### 1.5. Zotero Translation Server
+- **When**: Server is running and paper has DOI, PMID, arXiv ID, or URL
+- **Success Rate**: Variable (20-50%), excellent for supported publishers
+- **API Key**: None required (local server)
+- **Setup**: `docker run -d -p 1969:1969 zotero/translation-server`
+- **Coverage**: 500+ academic publishers and databases
+- **Details**: See [ZOTERO_SETUP.md](ZOTERO_SETUP.md)
 
 ### 2. arXiv
 - **When**: Paper has arXiv ID or arXiv DOI

@@ -22,3 +22,9 @@ scihub
 
 # Language detection (optional - for abstract filtering)
 langdetect>=1.0.9
+
+# For Zotero Translation Server integration (optional):
+# Install separately: https://github.com/zotero/translation-server
+# Runs as a local Node.js/Docker service on port 1969
+# Quick start: docker run -d -p 1969:1969 zotero/translation-server
+# See docs/ZOTERO_SETUP.md for detailed instructions
