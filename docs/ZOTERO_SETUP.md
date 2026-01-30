@@ -1,288 +1,184 @@
-# Zotero Translation Server Setup Guide
+# Zotero Translation Server Setup
 
-## Overview
+The Zotero Translation Server enhances PDF downloads by extracting metadata and discovering PDF links from academic publishers.
 
-The Zotero Translation Server is an optional enhancement for Review Buddy's paper download functionality. It leverages Zotero's extensive library of web translators to extract metadata and discover PDF links from various academic sources.
+---
 
-## What It Does
+## Quick Start (After PC Restart)
 
-When enabled, Review Buddy uses Zotero Translation Server to:
+If you've already set up Docker and the Zotero container:
 
-1. **Extract metadata** from DOIs, PMIDs, arXiv IDs, and paper URLs
-2. **Discover PDF links** that may not be found through other methods
-3. **Enrich paper information** from publisher websites
+```powershell
+# 1. Start Docker Desktop (if not running)
+Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+# Wait ~30 seconds for Docker to fully start
 
-The Zotero translators support hundreds of academic publishers and databases, including:
-- Major publishers (Elsevier, Springer, Wiley, Nature, etc.)
-- Databases (PubMed, Scopus, Web of Science)
-- Preprint servers (arXiv, bioRxiv, SSRN)
-- Institutional repositories
-- And many more
-
-## Installation
-
-### Option 1: Docker (Recommended)
-
-The easiest way to run the Zotero Translation Server is using Docker:
-
-```bash
-# Pull and run the container
-docker run -d -p 1969:1969 --name zotero-translation zotero/translation-server
-
-# Verify it's running
-curl http://localhost:1969
-# Should return "Zotero Translation Server is running"
-```
-
-To stop the server:
-```bash
-docker stop zotero-translation
-```
-
-To start it again:
-```bash
-docker start zotero-translation
-```
-
-To remove the container:
-```bash
-docker rm zotero-translation
-```
-
-### Option 2: Docker Compose
-
-If you prefer Docker Compose, add this to your `docker-compose.yml`:
-
-```yaml
-version: '3'
-services:
-  zotero-translation:
-    image: zotero/translation-server
-    ports:
-      - "1969:1969"
-    restart: unless-stopped
-```
-
-Then run:
-```bash
-docker-compose up -d
-```
-
-### Option 3: Node.js (Manual Installation)
-
-If you prefer to run it directly with Node.js:
-
-```bash
-# Clone the repository
-git clone https://github.com/zotero/translation-server.git
-cd translation-server
-
-# Install dependencies
-npm install
-
-# Start the server
-npm start
-```
-
-The server will run on `http://localhost:1969` by default.
-
-## Configuration
-
-### Environment Variables
-
-Add these to your `.env` file:
-
-```bash
-# Zotero Translation Server URL (optional, defaults to localhost:1969)
-ZOTERO_SERVER_URL=http://localhost:1969
-
-# Enable/disable Zotero integration (optional, defaults to true)
-ZOTERO_ENABLED=true
-
-# Request timeout in seconds (optional, defaults to 30)
-ZOTERO_TIMEOUT=30
-```
-
-### Script Configuration
-
-In `03_download_papers.py`, you can also configure directly:
-
-```python
-USE_ZOTERO = True  # Set to False to disable
-ZOTERO_SERVER_URL = os.getenv("ZOTERO_SERVER_URL", "http://localhost:1969")
-```
-
-## Usage
-
-### Automatic Usage
-
-When the Zotero Translation Server is running, Review Buddy automatically uses it as a fallback method during PDF downloads:
-
-```bash
-# Start Zotero server (if using Docker)
+# 2. Start Zotero container
 docker start zotero-translation
 
-# Run the download script
+# 3. Verify it's running
+docker ps --filter "name=zotero"
+# Should show: zotero-translation ... Up ...
+
+# 4. Run your download script
 python 03_download_papers.py
 ```
 
-The logs will show when Zotero is being used:
-```
-[INFO] Zotero Translation Server available at http://localhost:1969
-...
-[INFO]   → Trying Zotero Translation Server...
-[INFO]   → Found via Zotero: https://example.com/paper.pdf
-[INFO]   ✓ SUCCESS via Zotero Translation Server
+**That's it!** If you used `--restart unless-stopped` during setup, the container auto-starts with Docker.
+
+---
+
+## First-Time Setup (Windows AMD64/x64)
+
+> **Note**: The official `zotero/translation-server` image only supports ARM64. On Windows/Intel, you must build from source.
+
+### Step 1: Install Docker Desktop
+
+1. Download from https://www.docker.com/products/docker-desktop
+2. Run installer, **select WSL 2 backend** (recommended)
+3. Restart PC when prompted
+4. Launch Docker Desktop and wait for it to fully start (~30 seconds)
+
+### Step 2: Clone Zotero Server
+
+```powershell
+# Navigate to your projects folder (adjust path as needed)
+cd C:\Users\YOUR_USERNAME\Projects
+
+# Clone with submodules - THIS IS IMPORTANT!
+git clone --recurse-submodules https://github.com/zotero/translation-server.git
+
+cd translation-server
 ```
 
-### Manual Testing
+### Step 3: Create Custom Dockerfile
 
-You can test the Zotero client directly:
+Create a file named `Dockerfile.local` in the translation-server folder:
+
+```dockerfile
+FROM node:lts
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install --legacy-peer-deps
+
+# Copy source code
+COPY . .
+
+# Clone translators (excluded by .dockerignore)
+RUN git clone --depth 1 https://github.com/zotero/translators.git modules/translators
+
+EXPOSE 1969
+
+CMD ["node", "src/server.js"]
+```
+
+### Step 4: Build and Run
+
+```powershell
+# Build the image (takes 2-3 minutes)
+docker build -f Dockerfile.local -t zotero-local .
+
+# Run with auto-restart enabled
+docker run -d -p 1969:1969 --restart unless-stopped --name zotero-translation zotero-local
+
+# Verify it's working
+curl http://localhost:1969
+# Should return: "Zotero Translation Server is Running"
+```
+
+### Step 5: Test Integration
+
+```powershell
+cd C:\Users\YOUR_USERNAME\Projects\review_buddy
+
+# Quick test
+python -c "from src.searchers.zotero_client import ZoteroTranslationClient; z = ZoteroTranslationClient(); print('Available:', z.is_available())"
+# Should print: Available: True
+
+# Run download script
+python 03_download_papers.py
+```
+
+---
+
+## Container Management
+
+```powershell
+# Check status
+docker ps --filter "name=zotero"
+
+# Stop
+docker stop zotero-translation
+
+# Start
+docker start zotero-translation
+
+# View logs
+docker logs zotero-translation
+
+# Remove completely (to recreate)
+docker rm -f zotero-translation
+```
+
+---
+
+## Configuration
+
+In `03_download_papers.py`:
 
 ```python
-from src.searchers.zotero_client import ZoteroTranslationClient
-
-client = ZoteroTranslationClient()
-
-# Check if server is available
-if client.is_available():
-    print("Server is running!")
-    
-    # Test with a DOI
-    metadata = client.translate_identifier("10.1371/journal.pone.0123456", "doi")
-    if metadata:
-        print(f"Title: {metadata.get('title')}")
-        
-        # Check for PDF attachment
-        pdf_url = client.extract_pdf_url(metadata)
-        if pdf_url:
-            print(f"PDF URL: {pdf_url}")
-else:
-    print("Server not available")
+USE_ZOTERO = True   # Enable/disable
+ZOTERO_SERVER_URL = "http://localhost:1969"
 ```
 
-## Download Priority
+Or in `.env`:
 
-With Zotero enabled, the download order is:
+```bash
+ZOTERO_SERVER_URL=http://localhost:1969
+```
 
-1. **Direct PDF links** (if URL ends with .pdf)
-2. **Zotero Translation Server** ← NEW
-3. arXiv
-4. bioRxiv/medRxiv
-5. Unpaywall
-6. Crossref API
-7. PubMed Central
-8. Publisher-specific patterns
-9. ResearchGate/Academia.edu
-10. HTML scraping
-11. Sci-Hub (optional)
-
-Zotero is positioned early in the fallback chain because it can often find PDFs that would otherwise require more complex scraping.
+---
 
 ## Troubleshooting
 
-### Server Not Available
+| Problem | Solution |
+|---------|----------|
+| "Cannot connect to Docker" | Start Docker Desktop and wait 30 seconds |
+| Container not found | Run `docker ps -a` to check, then `docker start zotero-translation` |
+| Port 1969 in use | `docker rm -f zotero-translation` then recreate |
+| Server not responding | Check logs: `docker logs zotero-translation` |
+| ARM64 platform error | You need to build from source (see Step 3 above) |
 
-If you see this warning:
-```
-[WARNING] Zotero Translation Server not available at http://localhost:1969
-```
+---
 
-1. **Check if Docker is running:**
-   ```bash
-   docker ps | grep zotero
-   ```
+## What Zotero Does
 
-2. **Start the container:**
-   ```bash
-   docker start zotero-translation
-   # Or if it doesn't exist:
-   docker run -d -p 1969:1969 --name zotero-translation zotero/translation-server
-   ```
+- Extracts metadata from DOIs, PMIDs, arXiv IDs
+- Resolves DOIs to canonical publisher URLs
+- Constructs PDF URLs for open access journals
+- Supports 600+ academic sources
 
-3. **Verify the server is responding:**
-   ```bash
-   curl http://localhost:1969
-   ```
+### Why Zotero Desktop Downloads More Papers
 
-### Connection Errors
+The Zotero Desktop app can download more papers than this script because:
 
-If you're running the server on a different host or port:
+1. **Browser Integration**: Desktop app runs in your browser with your cookies/sessions
+2. **Institutional Access**: If you're logged into your university, Zotero inherits that access
+3. **Interactive Auth**: Desktop can prompt for login when needed
 
-1. Update your `.env` file:
-   ```bash
-   ZOTERO_SERVER_URL=http://your-server:1969
-   ```
+The Translation Server is headless - it only extracts metadata and constructs URLs, but can't authenticate to paywalled publishers.
 
-2. Ensure the port is accessible (firewall rules, etc.)
+### Recommended Workflow
 
-### Slow Translations
+For maximum downloads:
 
-Some publishers may take longer to translate. The default timeout is 30 seconds. You can increase it:
+1. **Run Review Buddy first** - downloads all freely available papers
+2. **Import `failed_downloads.bib` into Zotero Desktop** - it will download the rest using your institutional access
+3. **Export PDFs from Zotero** to your results folder
 
-```bash
-ZOTERO_TIMEOUT=60
-```
-
-### No PDF Found
-
-Even when Zotero successfully translates a page, it may not find a PDF if:
-- The paper is paywalled
-- The translator doesn't support PDF extraction for that publisher
-- The PDF link is dynamically generated
-
-This is normal - the download will continue to the next fallback method.
-
-## Performance Considerations
-
-- **First request may be slow**: The server needs to warm up
-- **Rate limiting**: Some publishers may rate limit requests
-- **Memory usage**: The Docker container uses about 200-400MB of RAM
-
-## Disabling Zotero
-
-If you want to disable Zotero without stopping the server:
-
-1. **In `.env`:**
-   ```bash
-   ZOTERO_ENABLED=false
-   ```
-
-2. **In `03_download_papers.py`:**
-   ```python
-   USE_ZOTERO = False
-   ```
-
-3. **In code:**
-   ```python
-   downloader = PaperDownloader(
-       output_dir="results/pdfs",
-       use_zotero=False
-   )
-   ```
-
-## API Reference
-
-### Zotero Translation Server Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/web` | POST | Translate a URL |
-| `/search` | POST | Translate an identifier (DOI, PMID, etc.) |
-| `/export` | POST | Convert metadata to different formats |
-
-### ZoteroTranslationClient Methods
-
-| Method | Description |
-|--------|-------------|
-| `is_available()` | Check if server is running |
-| `translate_url(url)` | Extract metadata from URL |
-| `translate_identifier(id, type)` | Extract metadata from DOI/PMID/etc. |
-| `extract_pdf_url(metadata)` | Get PDF URL from metadata |
-| `batch_translate(items)` | Process multiple items |
-
-## Further Reading
-
-- [Zotero Translation Server GitHub](https://github.com/zotero/translation-server)
-- [Zotero Translators](https://www.zotero.org/support/translators)
-- [Review Buddy Downloader Guide](DOWNLOADER_GUIDE.md)
+This hybrid approach gets you the best of both worlds.

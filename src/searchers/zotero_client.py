@@ -123,12 +123,21 @@ class ZoteroTranslationClient:
         
         try:
             if method.upper() == 'POST':
-                response = requests.post(
-                    url,
-                    json=data,
-                    headers=default_headers,
-                    timeout=self.timeout
-                )
+                # Check if we should send as plain text or JSON
+                if default_headers.get('Content-Type') == 'text/plain':
+                    response = requests.post(
+                        url,
+                        data=data,
+                        headers=default_headers,
+                        timeout=self.timeout
+                    )
+                else:
+                    response = requests.post(
+                        url,
+                        json=data,
+                        headers=default_headers,
+                        timeout=self.timeout
+                    )
             else:
                 response = requests.get(
                     url,
@@ -192,7 +201,7 @@ class ZoteroTranslationClient:
         response = self._make_request(
             'POST',
             '/web',
-            data={'url': url, 'sessionid': 'review_buddy'}
+            data={'url': url, 'session': 'review_buddy'}
         )
         
         if response is None:
