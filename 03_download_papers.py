@@ -33,6 +33,8 @@ OUTPUT_DIR = Path("results/pdfs")
 USE_SCIHUB = False  # Set to True to enable Sci-Hub fallback (use responsibly)
 USE_ZOTERO = True   # Set to False to disable Zotero Translation Server
 ZOTERO_SERVER_URL = os.getenv("ZOTERO_SERVER_URL", "http://localhost:1969")
+USE_BROWSER = True  # Use browser-based download for institutional access
+BROWSER_HEADLESS = True  # Set to False to see the browser (useful for debugging)
 
 def main():
     """Main execution function"""
@@ -66,6 +68,7 @@ def main():
     print(f"Output directory: {OUTPUT_DIR}")
     print(f"Unpaywall email: {unpaywall_email or 'Not set'}")
     print(f"Zotero Translation Server: {ZOTERO_SERVER_URL if USE_ZOTERO else 'Disabled'}")
+    print(f"Browser download: {'Enabled' if USE_BROWSER else 'Disabled'}")
     print(f"Sci-Hub enabled: {USE_SCIHUB}")
     print()
     
@@ -80,7 +83,9 @@ def main():
         use_scihub=USE_SCIHUB,
         unpaywall_email=unpaywall_email,
         use_zotero=USE_ZOTERO,
-        zotero_server_url=ZOTERO_SERVER_URL
+        zotero_server_url=ZOTERO_SERVER_URL,
+        use_browser=USE_BROWSER,
+        browser_headless=BROWSER_HEADLESS
     )
     
     # Download papers
