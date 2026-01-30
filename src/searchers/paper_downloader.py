@@ -22,13 +22,17 @@ class PaperDownloader:
         use_scihub: bool = False, 
         unpaywall_email: Optional[str] = None,
         use_zotero: bool = True,
-        zotero_server_url: Optional[str] = None
+        zotero_server_url: Optional[str] = None,
+        use_browser: bool = False,
+        browser_headless: bool = True
     ):
         self.output_dir = Path(output_dir)
         self.use_scihub = use_scihub
         self.unpaywall_email = unpaywall_email
         self.use_zotero = use_zotero
         self.zotero_server_url = zotero_server_url or "http://localhost:1969"
+        self.use_browser = use_browser
+        self.browser_headless = browser_headless
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Set up logger with better formatting
@@ -66,6 +70,22 @@ class PaperDownloader:
                 self.logger.warning(f"Failed to import Zotero client: {e}")
                 self.zotero_client = None
         
+        # Initialize Browser Downloader (if enabled)
+        self.browser_downloader = None
+        if self.use_browser:
+            try:
+                from .browser_downloader import BrowserDownloader
+                self.browser_downloader = BrowserDownloader(
+                    output_dir=str(self.output_dir),
+                    headless=self.browser_headless
+                )
+                self.logger.info(f"Browser downloader enabled (headless={self.browser_headless})")
+                self.logger.info(f"  → Session data: {self.browser_downloader.user_data_dir}")
+            except ImportError as e:
+                self.logger.warning(f"Failed to import browser downloader: {e}")
+                self.logger.warning("  → Install playwright: pip install playwright && playwright install chromium")
+                self.browser_downloader = None
+        
         # Statistics
         self.stats = {
             'total': 0,
@@ -78,6 +98,7 @@ class PaperDownloader:
                 'zotero': 0,
                 'arxiv': 0,
                 'unpaywall': 0,
+                'browser': 0,
                 'scihub': 0
             }
         }
@@ -94,6 +115,7 @@ class PaperDownloader:
         self.logger.info(f"Input file: {bib_file}")
         self.logger.info(f"Output directory: {self.output_dir}")
         self.logger.info(f"Zotero enabled: {self.use_zotero and self.zotero_client is not None}")
+        self.logger.info(f"Browser enabled: {self.use_browser and self.browser_downloader is not None}")
         self.logger.info(f"Unpaywall enabled: {bool(self.unpaywall_email)}")
         self.logger.info(f"Sci-Hub enabled: {self.use_scihub}")
         self.logger.info("="*80)
@@ -243,11 +265,28 @@ class PaperDownloader:
                 pdf_url = self._get_zotero_pdf(entry)
                 if pdf_url:
                     self.logger.info(f"  → Found via Zotero: {pdf_url[:80]}")
+                    # First try simple download (works for open access)
                     if self._download_pdf(pdf_url, dest_path):
                         self.logger.info(f"  ✓ SUCCESS via Zotero Translation Server")
                         self.stats['success'] += 1
                         self.stats['by_method']['zotero'] = self.stats['by_method'].get('zotero', 0) + 1
                         return
+                    # If simple download fails but we have browser, try browser with Zotero URL
+                    elif self.browser_downloader:
+                        self.logger.info(f"  → Zotero URL found but needs auth, trying browser...")
+                        try:
+                            browser_pdf = self.browser_downloader.download_pdf(
+                                pdf_url,
+                                filename=dest_path.name,
+                                doi=doi
+                            )
+                            if browser_pdf and browser_pdf.exists():
+                                self.logger.info(f"  ✓ SUCCESS via Zotero + Browser")
+                                self.stats['success'] += 1
+                                self.stats['by_method']['zotero_browser'] = self.stats['by_method'].get('zotero_browser', 0) + 1
+                                return
+                        except Exception as be:
+                            self.logger.debug(f"  → Zotero+Browser failed: {be}")
             except Exception as e:
                 self.logger.debug(f"  → Zotero error: {e}")
         
@@ -352,7 +391,25 @@ class PaperDownloader:
                     self.stats['by_method']['scraping'] = self.stats['by_method'].get('scraping', 0) + 1
                     return
         
-        # 5. Fallback: Sci-Hub (if enabled)
+        # 5. Browser-based download (uses real browser with saved sessions)
+        if self.browser_downloader and (doi or url):
+            self.logger.info(f"  → Trying browser-based download...")
+            try:
+                download_url = f"https://doi.org/{doi}" if doi else url
+                pdf_path = self.browser_downloader.download_pdf(
+                    download_url,
+                    filename=dest_path.name,
+                    doi=doi
+                )
+                if pdf_path and pdf_path.exists():
+                    self.logger.info(f"  ✓ SUCCESS via browser download")
+                    self.stats['success'] += 1
+                    self.stats['by_method']['browser'] += 1
+                    return
+            except Exception as e:
+                self.logger.debug(f"  → Browser download failed: {e}")
+        
+        # 6. Fallback: Sci-Hub (if enabled)
         if self.use_scihub and doi:
             self.logger.info(f"  → Trying Sci-Hub...")
             pdf_path = self._get_scihub_pdf(doi, dest_path)
@@ -362,7 +419,7 @@ class PaperDownloader:
                 self.stats['by_method']['scihub'] += 1
                 return
         
-        # 6. Log failure and store paper info
+        # 7. Log failure and store paper info
         self.logger.error(f"  ✗ FAILED: Could not download from any source")
         if not doi and not arxiv_id:
             self.logger.error(f"  → No DOI or arXiv ID available")
@@ -574,11 +631,15 @@ class PaperDownloader:
         from DOIs, PMIDs, arXiv IDs, and URLs using its extensive library
         of translators.
         
+        Note: The Translation Server primarily returns metadata, not PDFs.
+        However, it can resolve identifiers to canonical publisher URLs
+        which may help downstream download methods.
+        
         Args:
             entry: BibTeX/RIS entry dictionary
             
         Returns:
-            PDF URL if found, None otherwise
+            PDF URL if found, or canonical publisher URL to try, None otherwise
         """
         if not self.zotero_client:
             return None
@@ -607,21 +668,101 @@ class PaperDownloader:
                 self.logger.debug(f"  → Zotero: trying arXiv {arxiv_id}")
                 metadata = self.zotero_client.translate_identifier(arxiv_id, "arxiv")
             
-            # Try URL as last resort
+            # Try URL to get canonical publisher URL
             if not metadata and url:
                 self.logger.debug(f"  → Zotero: trying URL {url[:80]}")
                 metadata = self.zotero_client.translate_url(url)
             
             # Extract PDF URL from metadata
             if metadata:
+                # First try direct PDF attachment
                 pdf_url = self.zotero_client.extract_pdf_url(metadata)
                 if pdf_url:
                     return pdf_url
-                else:
-                    self.logger.debug(f"  → Zotero found metadata but no PDF attachment")
+                
+                # Get canonical URL from metadata - useful for resolving Scopus/proxy links
+                canonical_url = metadata.get('url')
+                if canonical_url and canonical_url != url:
+                    # Try to construct PDF URL from canonical URL
+                    pdf_url = self._construct_pdf_from_publisher_url(canonical_url)
+                    if pdf_url:
+                        self.logger.debug(f"  → Zotero: constructed PDF URL from canonical: {pdf_url[:60]}")
+                        return pdf_url
+                
+                self.logger.debug(f"  → Zotero found metadata but no PDF URL")
             
         except Exception as e:
             self.logger.debug(f"  → Zotero error: {e}")
+        
+        return None
+    
+    def _construct_pdf_from_publisher_url(self, url: str) -> Optional[str]:
+        """
+        Try to construct a PDF URL from a publisher URL.
+        
+        Many publishers have predictable PDF URL patterns.
+        
+        Args:
+            url: Publisher URL from Zotero metadata
+            
+        Returns:
+            PDF URL if pattern matched, None otherwise
+        """
+        if not url:
+            return None
+        
+        url_lower = url.lower()
+        
+        # Nature (nature.com)
+        if 'nature.com/articles/' in url_lower:
+            return url.replace('/articles/', '/articles/') + '.pdf'
+        
+        # Frontiers
+        if 'frontiersin.org/articles/' in url_lower or 'frontiersin.org/journals/' in url_lower:
+            if '/full' in url_lower:
+                return url.replace('/full', '/pdf')
+            return url + '/pdf'
+        
+        # MDPI
+        if 'mdpi.com/' in url_lower and '/htm' not in url_lower:
+            # https://www.mdpi.com/2079-9292/14/13/2667 -> https://www.mdpi.com/2079-9292/14/13/2667/pdf
+            return url.rstrip('/') + '/pdf'
+        
+        # PLoS
+        if 'plos' in url_lower and 'journal.p' in url_lower:
+            # https://journals.plos.org/plosone/article?id=10.1371/... 
+            if '?id=' in url:
+                doi = url.split('?id=')[-1]
+                return f"https://journals.plos.org/plosone/article/file?id={doi}&type=printable"
+        
+        # bioRxiv/medRxiv  
+        if 'biorxiv.org' in url_lower or 'medrxiv.org' in url_lower:
+            if '/content/' in url and not url.endswith('.pdf'):
+                return url + '.full.pdf'
+        
+        # Wiley (for open access)
+        if 'onlinelibrary.wiley.com/doi/' in url_lower:
+            # Try pdfdirect pattern
+            if '/full/' in url:
+                return url.replace('/full/', '/pdfdirect/')
+            elif '/abs/' in url:
+                return url.replace('/abs/', '/pdfdirect/')
+            else:
+                return url.replace('/doi/', '/doi/pdfdirect/')
+        
+        # IOP Science
+        if 'iopscience.iop.org/article/' in url_lower:
+            if '/meta' in url:
+                return url.replace('/meta', '/pdf')
+            return url + '/pdf'
+        
+        # Springer/BMC (open access journals)
+        if 'springeropen.com/articles/' in url_lower or 'biomedcentral.com/articles/' in url_lower:
+            return url + '/fulltext.pdf' if not url.endswith('.pdf') else url
+        
+        # JNEUROSCI and similar
+        if 'jneurosci.org' in url_lower:
+            return url + '.full.pdf'
         
         return None
     
