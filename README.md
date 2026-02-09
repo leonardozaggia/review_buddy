@@ -116,12 +116,6 @@ QUERY = Path("query.txt").read_text(encoding="utf-8").strip()
 
 1. Direct PDF links → 2. arXiv → 3. bioRxiv/medRxiv → 4. Unpaywall API → 5. Crossref → 6. PubMed Central (US & Europe) → 7. Publisher patterns (MDPI, Frontiers, Nature, IEEE, ScienceDirect, Springer, PLOS) → 8. ResearchGate/Academia.edu → 9. HTML scraping → 10. Sci-Hub (optional)
 
-**Expected success rates:**
-- arXiv papers: 95%+
-- bioRxiv/medRxiv: 95%+
-- Open access publishers: 80-90%
-- Overall (without Sci-Hub): 50-70%
-- Overall (with Sci-Hub): 70-90%
 
 **📖 Details**: See [Downloader Guide](docs/DOWNLOADER_GUIDE.md)
 
