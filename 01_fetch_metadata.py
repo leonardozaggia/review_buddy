@@ -34,7 +34,7 @@ logging.basicConfig(
 
 # Configuration
 #QUERY = "machine learning AND healthcare"                      # <- Specify your query here
-QUERY = Path("query.txt").read_text(encoding="utf-8").strip()   # <- Alternatively, parse a query from a .txt file
+QUERY = Path("query.txt").read_text(encoding="utf-8").strip()   # <- (Recomended!) Alternatively, parse a query from a .txt file
 YEAR_FROM = 2020
 MAX_RESULTS_PER_SOURCE = 10                                 # Use 999999 for unlimited search
 OUTPUT_DIR = Path("results")
