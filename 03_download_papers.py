@@ -9,7 +9,7 @@ Usage:
 Configuration:
     Set UNPAYWALL_EMAIL in .env file (see .env.example)
 """
-
+ 
 import os
 import sys
 from pathlib import Path
