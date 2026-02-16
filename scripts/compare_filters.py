@@ -7,8 +7,8 @@ import pandas as pd
 import sys
 from pathlib import Path
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+# Add repo root to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.utils import save_filter_comparison
 
 def load_csv_safe(filepath):
