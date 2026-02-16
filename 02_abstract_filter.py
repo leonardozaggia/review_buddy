@@ -28,8 +28,10 @@ from src.utils import load_papers_from_bib, save_papers_csv, save_papers_bib
 
 # Which filters to apply? Add key and set to True/False
 FILTERS_ENABLED = {
-    'no_abstract': True,        # Remove papers without abstracts
-    'non_english': True,        # Remove non-English papers
+    # --- BASIC FILTERS --- #
+    'no_abstract': True,       # Remove papers without abstracts
+    'non_english': True,       # Remove non-English papers
+    # --- CUSTOM FILTERS --- #
     'epilepsy': True,          # Remove epileptic spike papers
     'bci': True,               # Remove brain-computer interface papers
     'non_human': True,         # Remove animal/in-vitro studies
