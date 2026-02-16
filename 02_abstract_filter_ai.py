@@ -49,7 +49,7 @@ AI_CONFIG = {
 # Define each filter with a natural language prompt
 FILTERS_CONFIG = {
     'epilepsy': {
-        'enabled': True,
+        'enabled': True,                  # Set to False to disable this filter
         'prompt': "Does this paper focus primarily on epileptic spikes, seizure detection, or epileptiform activity?",
         'description': "Papers about epilepsy-related spike detection"
     },
@@ -74,12 +74,12 @@ FILTERS_CONFIG = {
     
     # Add your own custom filters here - examples:
     # 'fmri_only': {
-    #     'enabled': False,
+    #     'enabled': True,
     #     'prompt': "Does this paper use ONLY fMRI methods without any EEG/MEG/iEEG data?",
     #     'description': "Papers using only fMRI"
     # },
     # 'pediatric': {
-    #     'enabled': False,
+    #     'enabled': True,
     #     'prompt': "Is this paper focused exclusively on pediatric populations (children/infants)?",
     #     'description': "Pediatric-only studies"
     # },
