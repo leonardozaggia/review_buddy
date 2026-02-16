@@ -36,8 +36,8 @@ logging.basicConfig(
 #QUERY = "machine learning AND healthcare"                      # <- Specify your query here
 QUERY = Path("query.txt").read_text(encoding="utf-8").strip()   # <- (Recomended!) Alternatively, parse a query from a .txt file
 YEAR_FROM = 2020
-MAX_RESULTS_PER_SOURCE = 10                                 # Use 999999 for unlimited search
-OUTPUT_DIR = Path("results")
+MAX_RESULTS_PER_SOURCE = 10                                     # Use 999999 for unlimited search
+SOURCES = ["scopus", "pubmed", "arxiv", "scholar"]              # <- Specify sources to use: ['scopus', 'pubmed', 'arxiv', 'scholar', 'ieee']
 
 def main():
     """Main execution function"""
@@ -89,7 +89,7 @@ def main():
     print("SEARCHING...")
     print("=" * 80)
     
-    papers = searcher.search_all(query=QUERY, year_from=YEAR_FROM)
+    papers = searcher.search_all(query=QUERY, year_from=YEAR_FROM, sources=SOURCES)
     
     # Display results
     print()
