@@ -37,6 +37,7 @@ For more sophisticated filtering, use `02_abstract_filter_ai.py` with a local LL
 - Natural language filter definitions (no regex patterns needed)
 - Confidence scores and reasoning for each decision
 - Customizable filters for your specific review criteria
+- Automatic flagging of uncertain papers for manual review
 
 **Quick setup:**
 ```bash
@@ -55,11 +56,24 @@ python 02_abstract_filter_ai.py
 
 The script will cache LLM responses to avoid redundant API calls. First run may take 10-30 minutes depending on the number of papers and your hardware. Subsequent runs with cached papers are much faster.
 
+**Output files:**
+- `papers_filtered_ai.csv` / `references_filtered_ai.bib` - Filtered papers
+- `manual_review_ai.csv` - Papers flagged for manual review (low confidence)
+- `ai_filtering_log_*.json` - Detailed decision log with confidence scores
+
+**Compare filtering strategies:**
+```bash
+python scripts/compare_filters.py  # Compare AI vs keyword filtering results
+```
+
 **HPC/Cluster users**: See `run_filter_hpc.sh` for a SLURM job script example that manages the Ollama server automatically.
 
 Results in `results/` folder: `papers.csv`, `references.bib`, `references.ris`, `pdfs/`
 
-**Note:** The download script automatically uses filtered results (`references_filtered.bib`) if available, otherwise uses original results (`references.bib`).
+**Note:** The download script automatically uses filtered results if available:
+- `references_filtered.bib` (keyword filtering) is checked first
+- Falls back to `references.bib` (unfiltered) if no filtered version exists
+- To use AI-filtered results, rename `references_filtered_ai.bib` to `references_filtered.bib`, or update the path in `03_download_papers.py`
 
 ## Configuration
 
@@ -218,14 +232,18 @@ review_buddy/
 │       ├── ieee_searcher.py
 │       └── paper_downloader.py # Download logic
 ├── docs/                        # Documentation
+├── scripts/                     # Utility scripts
+│   └── compare_filters.py      # Compare AI vs keyword filtering
 └── results/                     # Output (auto-created)
     ├── papers.csv
     ├── papers_filtered.csv     # After keyword filtering
     ├── papers_filtered_ai.csv  # After AI filtering
+    ├── manual_review_ai.csv    # Papers needing manual review (AI)
     ├── references.bib
     ├── references_filtered.bib # After keyword filtering
     ├── references_filtered_ai.bib  # After AI filtering
     ├── ai_cache/               # Cached LLM responses
+    ├── ai_filtering_log_*.json # Detailed AI decisions
     └── pdfs/
 ```
 
