@@ -39,8 +39,8 @@ FILTERS_ENABLED = {
     'bci': True,               # Exclude BCI research
     'non_human': True,         # Exclude animal studies
     'non_empirical': True,     # Exclude reviews
-    'non_fmri_only': True,         # Custom: exclude fMRI-only studies
-    'non_pediatric': True,         # Custom: exclude pediatric studies
+    'fmri_only': True,             # Custom: exclude fMRI-only studies
+    'pediatric': True,             # Custom: exclude pediatric studies
 }
 
 # Define keyword-based filters
@@ -83,7 +83,7 @@ KEYWORD_FILTERS = {
     ],
     
     # Your custom filters
-    'non_non_fmri_only': [
+    'fmri_only': [
         'fMRI',
         'functional MRI',
         'functional magnetic resonance',
@@ -91,7 +91,7 @@ KEYWORD_FILTERS = {
         'blood oxygen level dependent',
     ],
     
-    'non_pediatric': [
+    'pediatric': [
         'children',
         'child',
         'pediatric',
@@ -123,10 +123,10 @@ Registered filter 'epilepsy' with 13 keywords
 Registered filter 'bci' with 11 keywords
 Registered filter 'non_human' with 31 keywords
 Registered filter 'non_empirical' with 11 keywords
-Registered filter 'non_non_fmri_only' with 5 keywords
-Registered filter 'non_pediatric' with 8 keywords
+Registered filter 'fmri_only' with 5 keywords
+Registered filter 'pediatric' with 8 keywords
 
-Filters to apply: no_abstract, non_english, epilepsy, bci, non_human, non_empirical, non_non_fmri_only, non_pediatric
+Filters to apply: no_abstract, non_english, epilepsy, bci, non_human, non_empirical, fmri_only, pediatric
 
 ======================================================================
 APPLYING FILTERS
@@ -139,8 +139,8 @@ Epilepsy filter: 215 papers kept, 18 filtered out
 BCI filter: 204 papers kept, 11 filtered out
 Non-human filter: 156 papers kept, 48 filtered out
 Non-empirical filter: 142 papers kept, 14 filtered out
-Custom: non_fmri_only filter: 119 papers kept, 23 filtered out
-Custom: non_pediatric filter: 104 papers kept, 15 filtered out
+Custom: fmri_only filter: 119 papers kept, 23 filtered out
+Custom: pediatric filter: 104 papers kept, 15 filtered out
 
 Final result: 104 papers kept, 146 papers filtered out
 
@@ -159,8 +159,8 @@ Breakdown by filter:
   - bci               :   11 papers
   - non_human         :   48 papers
   - non_empirical     :   14 papers
-  - non_fmri_only     :   23 papers
-  - non_pediatric     :   15 papers
+  - fmri_only         :   23 papers
+  - pediatric         :   15 papers
 
 ======================================================================
 SAVING RESULTS
@@ -173,8 +173,8 @@ Saved 18 epilepsy papers to results\filtered_out\epilepsy.csv
 Saved 11 bci papers to results\filtered_out\bci.csv
 Saved 48 non_human papers to results\filtered_out\non_human.csv
 Saved 14 non_empirical papers to results\filtered_out\non_empirical.csv
-Saved 23 non_fmri_only papers to results\filtered_out\non_fmri_only.csv
-Saved 15 non_pediatric papers to results\filtered_out\non_pediatric.csv
+Saved 23 fmri_only papers to results\filtered_out\fmri_only.csv
+Saved 15 pediatric papers to results\filtered_out\pediatric.csv
 
 ======================================================================
 FILTERING COMPLETE!
@@ -195,10 +195,10 @@ Check the filtered-out papers to verify nothing important was removed:
 
 ```bash
 # Check papers filtered by your custom fMRI filter
-type results\filtered_out\non_fmri_only.csv
+type results\filtered_out\fmri_only.csv
 
-# Check non_pediatric papers that were excluded
-type results\filtered_out\non_pediatric.csv
+# Check pediatric papers that were excluded
+type results\filtered_out\pediatric.csv
 ```
 
 If you find false positives (good papers incorrectly filtered), adjust your keywords and re-run.
@@ -236,25 +236,25 @@ results/
     ├── bci.csv                     # 11 papers
     ├── non_human.csv               # 48 papers
     ├── non_empirical.csv           # 14 papers
-    ├── non_fmri_only.csv               # 23 papers (custom)
-    └── non_pediatric.csv               # 15 papers (custom)
+    ├── fmri_only.csv                   # 23 papers (custom)
+    └── pediatric.csv                   # 15 papers (custom)
 ```
 
 ## Iterating on Filters
 
-If you review `non_fmri_only.csv` and find that some papers use both EEG and fMRI (which you want to keep), refine your filter:
+If you review `fmri_only.csv` and find that some papers use both EEG and fMRI (which you want to keep), refine your filter:
 
 ```python
 KEYWORD_FILTERS = {
     # ... other filters ...
     
-    'non_fmri_only': [
+    'fmri_only': [
         # Only filter papers that mention ONLY fMRI, not combined studies
         'fMRI only',
         'exclusively fMRI',
         'solely fMRI',
         # Remove general terms that catch combined studies
-        # 'fMRI',  # Too broad - removed
+        # 'functional magnetic resonance',  # Too broad - removed
         # 'BOLD signal',  # Too broad - removed
     ],
 }
