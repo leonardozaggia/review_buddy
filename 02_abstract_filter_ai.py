@@ -254,7 +254,7 @@ def main():
     
     logger.info("\nNext step:")
     logger.info("  1. Review papers in manual_review_ai.csv")
-    logger.info("  2. Run compare_filtering_strategies.py to compare with keyword filtering")
+    logger.info("  2. Run scripts/compare_filters.py to compare with keyword filtering")
     logger.info("  3. Run 03_download_papers.py to download PDFs")
 
 
