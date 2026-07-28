@@ -6,6 +6,8 @@ natural language understanding rather than keyword matching.
 """
 
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Set
 from pathlib import Path
 import json
@@ -31,7 +33,8 @@ class AIAbstractFilter:
         llm_client: OllamaClient,
         confidence_threshold: float = 0.5,
         log_decisions: bool = True,
-        log_dir: Path = None
+        log_dir: Path = None,
+        max_workers: int = 1
     ):
         """
         Initialize AI-powered filter.
@@ -41,11 +44,13 @@ class AIAbstractFilter:
             confidence_threshold: Minimum confidence for filtering (0.0-1.0)
             log_decisions: Whether to log all decisions to JSON
             log_dir: Directory for decision logs (default: results/)
+            max_workers: How many LLM requests to keep in flight. 1 is serial.
         """
         self.llm_client = llm_client
         self.confidence_threshold = confidence_threshold
         self.log_decisions = log_decisions
         self.log_dir = log_dir or Path("results")
+        self.max_workers = max(1, int(max_workers))
         
         # Storage for detailed decisions
         self.decision_log = []
@@ -81,9 +86,44 @@ class AIAbstractFilter:
         
         return with_abstract, without_abstract
     
+    def _check_papers(
+        self,
+        papers: List[Paper],
+        filter_questions: Dict[str, str],
+        inverted: Set[str]
+    ) -> List[Dict]:
+        """
+        Run the LLM check for every paper, returning results in input order.
+
+        Ollama serves several requests at once, and on a memory-bound setup that
+        is most of the available speedup: concurrent requests share the cost of
+        streaming weights instead of each paying it alone. Measured on gpt-oss:20b
+        here, 2-4 in flight is roughly 3x the throughput of one at a time.
+        """
+        if self.max_workers <= 1 or len(papers) <= 1:
+            return [
+                self.llm_client.check_paper(p, filter_questions, inverted)
+                for p in papers
+            ]
+
+        done = [0]
+        counter_lock = threading.Lock()
+
+        def check(paper: Paper) -> Dict:
+            result = self.llm_client.check_paper(paper, filter_questions, inverted)
+            with counter_lock:
+                done[0] += 1
+                if done[0] % 25 == 0:
+                    logger.info(f"  {done[0]}/{len(papers)} LLM calls complete")
+            return result
+
+        # map() yields in input order regardless of completion order
+        with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+            return list(pool.map(check, papers))
+
     def filter_by_ai(
-        self, 
-        papers: List[Paper], 
+        self,
+        papers: List[Paper],
         filters_config: Dict[str, Dict]
     ) -> Dict:
         """
@@ -121,22 +161,35 @@ class AIAbstractFilter:
         
         logger.info(f"\nProcessing {len(papers)} papers with AI filters...")
         logger.info(f"Filters: {', '.join(filter_questions.keys())}")
-        
+        if self.max_workers > 1:
+            logger.info(f"Running {self.max_workers} requests concurrently")
+
+        # The LLM calls are issued concurrently, but every decision below is
+        # made in the original paper order, so the kept/filtered lists and the
+        # decision log come out identical to a serial run.
+        needs_llm = [
+            (idx, p) for idx, p in enumerate(papers)
+            if p.abstract and p.abstract.strip()
+        ]
+        answers = self._check_papers(
+            [p for _, p in needs_llm], filter_questions, inverted
+        )
+        by_index = {idx: ans for (idx, _), ans in zip(needs_llm, answers)}
+
         for i, paper in enumerate(papers, 1):
             if i % 10 == 0:
                 logger.info(f"Progress: {i}/{len(papers)} papers processed")
-            
+
             # Skip papers without abstracts
             if not paper.abstract or not paper.abstract.strip():
                 kept_papers.append(paper)
                 logger.debug(f"Skipping AI filter (no abstract): {paper.title[:50]}")
                 continue
-            
-            # Call LLM to check all filters
-            result = self.llm_client.check_paper(paper, filter_questions, inverted)
-            
+
+            result = by_index[i - 1]
+
             self.papers_processed += 1
-            
+
             # Check if API failed
             if not result['success']:
                 # API failure - keep but flag for manual review

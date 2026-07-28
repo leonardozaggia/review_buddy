@@ -53,18 +53,27 @@ ai_filter:
   #   llama3.2:3b   + positive prompts  0.899
   #   llama3.2:3b   + old negated ones  0.630   <- what this used to be
   #
-  # gpt-oss:20b is a 21B mixture-of-experts model with ~3.6B parameters active
-  # per token, so it runs on a 6GB GPU by keeping most layers in system RAM
-  # (needs ~16GB free). It is the slowest option here; the whole corpus is an
-  # overnight job. Switch to gemma3:4b when iterating on the filter design.
-  model: gpt-oss:20b
+  # gpt-oss:20b scores higher (0.971) but cannot be sped up on this machine:
+  # at 14GB it only just fits, so Ollama allocates a single slot for it and
+  # serialises concurrent requests (server log shows "slot id 0" only). It
+  # measured 19.4s/paper whether asked for 1 request at a time or 4 - about
+  # 29h for this corpus. gemma3:4b fits with room for several slots and does
+  # benefit: 6.37s/paper serial -> 3.41s/paper at 4 workers, roughly 5h.
+  #
+  # Use gpt-oss:20b for a final pass if the extra accuracy is worth 29h, or set
+  # OLLAMA_NUM_PARALLEL and restart the Ollama server to try forcing more slots.
+  model: gemma3:4b
   ollama_url: http://localhost:11434
   confidence_threshold: 0.6
   temperature: 0.1
   cache_responses: true
-  # gpt-oss returns an empty string when given a JSON schema, so it is asked in
-  # plain mode. Every other model tested should leave this on.
-  structured_output: false
+  # gemma3 honours Ollama's JSON schema; gpt-oss returns an empty string with
+  # it and falls back to plain prompting automatically.
+  structured_output: true
+  # Concurrent requests to Ollama. Inference here is memory-bound, so requests
+  # in flight together share the cost of streaming weights. Only helps when the
+  # model is small enough for Ollama to allocate more than one slot.
+  max_workers: 4
 
   # Each filter below is phrased POSITIVELY - "is this a paper we want?" - and
   # marked invert: true, so a NO drops the paper. The earlier negated phrasing

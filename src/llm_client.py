@@ -7,6 +7,7 @@ to classify papers using LLM-based analysis.
 
 import logging
 import json
+import threading
 import time
 import re
 from typing import Dict, List, Optional, Set, Tuple
@@ -73,7 +74,9 @@ class OllamaClient:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Response caching enabled: {self.cache_dir}")
         
-        # Usage tracking
+        # Usage tracking. check_paper may be called from several threads, so
+        # the counters and the schema-support flag are guarded.
+        self._lock = threading.Lock()
         self.api_calls = 0
         self.cache_hits = 0
         self.failed_calls = 0
@@ -127,7 +130,8 @@ Rules:
         if cache_file.exists():
             try:
                 with open(cache_file, 'r', encoding='utf-8') as f:
-                    self.cache_hits += 1
+                    with self._lock:
+                        self.cache_hits += 1
                     logger.debug(f"Cache hit for key {cache_key[:8]}...")
                     return json.load(f)
             except Exception as e:
@@ -357,7 +361,8 @@ Remember to respond with valid JSON only."""
                 )
 
                 response.raise_for_status()
-                self.api_calls += 1
+                with self._lock:
+                    self.api_calls += 1
 
                 # Parse response
                 response_data = response.json()
@@ -370,7 +375,8 @@ Remember to respond with valid JSON only."""
                         f"Model '{self.model}' returned nothing with a JSON schema; "
                         f"disabling structured output for the remainder of this run"
                     )
-                    self._schema_supported = False
+                    with self._lock:
+                        self._schema_supported = False
                     payload.pop("format")
                     response = requests.post(
                         f"{self.base_url}/api/generate",
@@ -434,7 +440,8 @@ Remember to respond with valid JSON only."""
                     time.sleep(wait_time)
                 else:
                     # All attempts failed
-                    self.failed_calls += 1
+                    with self._lock:
+                        self.failed_calls += 1
                     logger.error(f"All retry attempts failed for paper: {paper.title[:50]}")
                     
                     result = {

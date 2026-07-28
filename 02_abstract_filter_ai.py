@@ -51,6 +51,7 @@ AI_CONFIG = {
     'cache_responses': _AI.get('cache_responses', True),
     'confidence_threshold': _AI.get('confidence_threshold', 0.5),
     'structured_output': _AI.get('structured_output', True),
+    'max_workers': _AI.get('max_workers', 1),
 }
 
 # {filter_name: {enabled, prompt, description}}
@@ -141,7 +142,8 @@ def main():
         llm_client=llm_client,
         confidence_threshold=AI_CONFIG['confidence_threshold'],
         log_decisions=True,
-        log_dir=results_dir
+        log_dir=results_dir,
+        max_workers=AI_CONFIG['max_workers']
     )
     
     # Log enabled filters

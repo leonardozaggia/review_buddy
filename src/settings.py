@@ -44,6 +44,7 @@ _FALLBACK_DEFAULTS: Dict[str, Any] = {
         "confidence_threshold": 0.5,
         "temperature": 0.1,
         "structured_output": True,
+        "max_workers": 1,
         "retry_attempts": 3,
         "cache_responses": True,
         "filters": {},
