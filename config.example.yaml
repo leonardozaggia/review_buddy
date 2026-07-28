@@ -1,0 +1,199 @@
+# ============================================================================
+# Review Buddy — run configuration (TEMPLATE)
+# ============================================================================
+# Copy this file to `config.yaml` and edit that instead:
+#
+#     cp config.example.yaml config.yaml
+#
+# `config.yaml` is gitignored, so your query, filters and toggles never show up
+# in git history. It only needs to contain the keys you want to CHANGE — anything
+# you leave out falls back to the values in this template.
+#
+# API keys and emails do NOT go here — those stay in `.env` (see .env.example).
+# ============================================================================
+
+
+# --- Step 1: 01_fetch_metadata.py -------------------------------------------
+search:
+  # The search query. Leave `query` null to read it from `query_file` instead
+  # (handy for long boolean queries). If `query` is set, it wins.
+  query: null
+  query_file: query.txt
+
+  year_from: 2020
+  year_to: null                 # null = up to the current year
+  max_results_per_source: 10    # use a big number (e.g. 999999) for "unlimited"
+
+  # PubMed field scope. "tiab" restricts to Title/Abstract (recommended for a
+  # literature search). Without it PubMed matches ALL fields (references,
+  # affiliations, MeSH...) and is hugely noisy - e.g. a neonatal-fMRI query
+  # returns ~13,900 all-field vs ~800 with tiab. Set to null for all-field.
+  pubmed_field: tiab
+
+  # Which databases to search. Options: scopus, pubmed, arxiv, scholar, ieee
+  # (scopus/pubmed/ieee need API keys/email in .env; arxiv is free)
+  #
+  # NOTE: 'scholar' (Google Scholar via the `scholarly` library) is NOT in the
+  # default list. Google aggressively blocks automated queries - it typically
+  # hangs or serves a CAPTCHA - so it's unreliable and slow. Add it only if you
+  # accept that; it's guarded by a hard timeout so it can't stall the run
+  # forever, but it will usually return 0 results without a proxy.
+  sources: [scopus, pubmed, arxiv]
+
+  output_dir: results
+
+
+# --- Step 2: 02_abstract_filter.py ------------------------------------------
+# NOTE: if you define `enabled`, `keywords`, or (below) `ai_filter.filters` in
+# your config.yaml, they REPLACE these defaults wholesale rather than adding to
+# them - so a domain-specific config runs exactly the filters you list.
+filter:
+  # Toggle each filter on/off. Custom filters below are keyed by the same names.
+  enabled:
+    no_abstract: true       # drop papers with no abstract
+    non_english: true       # drop non-English papers (needs langdetect)
+    epilepsy: true
+    bci: true
+    non_human: true
+    non_empirical: true     
+
+  # Keyword lists for the custom filters. A paper is removed if any keyword
+  # matches (whole-word) in its title or abstract. Add your own filters here.
+  keywords:
+    epilepsy:
+      - epileptic spike
+      - epileptic spikes
+      - interictal spike
+      - ictal spike
+      - spike detection
+      - epileptiform
+      - seizure spike
+      - spike-wave
+      - paroxysmal spike
+      - sharp wave
+      - spike discharge
+    bci:
+      # NOTE: 'bmi' is intentionally excluded - it collides with "BMI (body
+      # mass index)", very common in human clinical abstracts we want to keep.
+      - brain-computer interface
+      - brain computer interface
+      - bci
+      - brain-machine interface
+      - brain machine interface
+      - neural interface
+      - thought control
+      - mind control
+      - p300 speller
+      - motor imagery bci
+      - steady-state visual
+    non_human:
+      - rat
+      - rats
+      - mouse
+      - mice
+      - murine
+      - rodent
+      - rodents
+      - monkey
+      - monkeys
+      - primate
+      - primates
+      - macaque
+      - macaques
+      - pig
+      - pigs
+      - porcine
+      - sheep
+      - ovine
+      - rabbit
+      - rabbits
+      - cat
+      - cats
+      - feline
+      - dog
+      - dogs
+      - canine
+      - zebrafish
+      - drosophila
+      - c. elegans
+      - caenorhabditis
+      - in vitro
+      - in-vitro
+      - cell culture
+      - cell line
+      - cultured cells
+      - animal model
+      - animal study
+      - animal experiment
+      - non-human
+      - non human
+      - nonhuman
+    non_empirical:
+      - systematic review
+      - meta-analysis
+      - meta analysis
+      - literature review
+      - scoping review
+      - narrative review
+      - review article
+      - state of the art
+      - state-of-the-art review
+      - survey paper
+      - comprehensive review
+
+
+# --- Step 3: 03_download_papers.py ------------------------------------------
+download:
+  # Which bibliography to download from. null = auto-pick
+  # (results/references_filtered.bib if it exists, else results/references.bib)
+  bib_file: null
+  output_dir: results/pdfs
+
+  max_workers: 4          # parallel download workers (1 = sequential)
+  use_zotero: true        # Zotero resolver chain (OA index + translation server)
+  use_scihub: false       # Sci-Hub fallback (use responsibly, per local law)
+
+  # Real-browser (Camoufox) fetcher for Cloudflare-protected publishers
+  # (Elsevier, Wiley, MDPI). Needs: pip install camoufox[geoip] && python -m camoufox fetch
+  # First run against a new publisher: python scripts/browser_login.py
+  # See docs/ZOTERO_HOW_IT_WORKS.md for what it does and why.
+  use_browser: false
+
+
+# --- Step 2 (alternative): 02_abstract_filter_ai.py -------------------------
+# LLM-based filtering via a local Ollama model. Used only when you run the AI
+# filter (python main.py --ai, or python 02_abstract_filter_ai.py). Each filter
+# is a natural-language yes/no question about the paper.
+ai_filter:
+  model: gemma3:4b             # any Ollama model; OLLAMA_MODEL env var overrides
+  ollama_url: http://localhost:11434
+  confidence_threshold: 0.5    # min confidence (0-1) to actually exclude a paper
+  temperature: 0.1
+  retry_attempts: 3
+  cache_responses: true        # cache LLM answers to avoid repeat calls
+  structured_output: true      # constrain replies to a JSON schema; turn off
+                               # only for models that return nothing with it
+                               # (gpt-oss does - it falls back automatically)
+
+  # Prefer to phrase each prompt POSITIVELY - "is this a paper we want?" - and
+  # set invert: true, rather than asking "is this a paper we drop?". Models
+  # under ~10B answer negated questions with correct reasoning and the wrong
+  # answer surprisingly often; on this repo's corpus that took one filter from
+  # 0.35 to 0.91 agreement with hand labels. See scripts/benchmark_ollama_models.py.
+  filters:
+    epilepsy:
+      enabled: true
+      prompt: "Does this paper focus primarily on epileptic spikes, seizure detection, or epileptiform activity?"
+      description: "Papers about epilepsy-related spike detection"
+    bci:
+      enabled: true
+      prompt: "Is this paper about brain-computer interfaces (BCI) or brain-machine interfaces (BMI)?"
+      description: "Papers about BCI/BMI systems"
+    non_human:
+      enabled: true
+      prompt: "Is this paper based on animal studies, in-vitro experiments, or computational models only (not human subjects)?"
+      description: "Non-human or in-vitro studies"
+    non_empirical:
+      enabled: true
+      prompt: "Is this a review paper, survey, meta-analysis, or opinion piece without original empirical data collection?"
+      description: "Reviews and non-empirical papers"

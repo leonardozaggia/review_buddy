@@ -19,6 +19,7 @@ class Config:
         scihub_url: str = "https://sci-hub.se",
         max_results_per_source: int = 1000,
         timeout: int = 30,
+        pubmed_field: Optional[str] = "tiab",
     ):
         """
         Initialize configuration.
@@ -42,7 +43,8 @@ class Config:
         self.scihub_url = scihub_url
         self.max_results_per_source = max_results_per_source
         self.timeout = timeout
-    
+        self.pubmed_field = pubmed_field
+
     def _clean_value(self, value: Optional[str]) -> Optional[str]:
         """
         Clean configuration values by removing surrounding quotes.
