@@ -5,6 +5,7 @@ Downloads PDFs for papers listed in a .bib or .ris file, prioritizing open acces
 Supports fallback strategies and optional Sci-Hub integration.
 """
 import os
+import re
 import logging
 from typing import List, Optional
 from pathlib import Path
@@ -16,12 +17,48 @@ class DownloadError(Exception):
     pass
 
 class PaperDownloader:
-    def __init__(self, output_dir: str, use_scihub: bool = False, unpaywall_email: Optional[str] = None):
+    # Realistic browser User-Agent reused across all requests
+    USER_AGENT = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                  '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+
+    def __init__(self, output_dir: str, use_scihub: bool = False, unpaywall_email: Optional[str] = None,
+                 use_zotero: bool = True, zotero_url: Optional[str] = None, max_workers: int = 4,
+                 use_browser: bool = False):
+        import threading
+        import requests
+        from requests.adapters import HTTPAdapter
+
         self.output_dir = Path(output_dir)
         self.use_scihub = use_scihub
         self.unpaywall_email = unpaywall_email
+        self.max_workers = max(1, int(max_workers))
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
+
+        # Dual-transport session: many publishers 403 a plain `requests` client
+        # even for open-access content, and a browser-impersonating client gets
+        # blocked by a *different* set of sites. This tries both. Sessions are
+        # thread-local, so it is safe across the download workers.
+        try:
+            from .http_client import DualTransportSession, CURL_CFFI_AVAILABLE
+        except ImportError:
+            from http_client import DualTransportSession, CURL_CFFI_AVAILABLE
+        self.session = DualTransportSession(self.USER_AGENT,
+                                            pool_size=self.max_workers * 2)
+        self.impersonating = CURL_CFFI_AVAILABLE
+
+        # Guards shared mutable state (stats, failed_papers) during parallel runs
+        self._lock = threading.Lock()
+
+        # Real-browser fetcher (Firefox/Gecko) - the last-resort strategy for
+        # Cloudflare-protected publishers that block every HTTP client
+        # regardless of TLS fingerprint. Lazily started (see _get_browser()):
+        # constructing a PaperDownloader should never eagerly launch a browser
+        # process, only the first paper that actually falls through to this
+        # strategy does. `None` = not yet attempted, `False` = tried and failed.
+        self.use_browser = use_browser
+        self._browser_fetcher = None
+        self._browser_lock = threading.Lock()
+
         # Set up logger with better formatting
         self.logger = logging.getLogger("PaperDownloader")
         self.logger.setLevel(logging.INFO)
@@ -39,6 +76,26 @@ class PaperDownloader:
         console.setFormatter(logging.Formatter('[%(levelname)s] %(message)s'))
         self.logger.addHandler(console)
         
+        # Zotero translation server (primary PDF fetcher when available)
+        self.zotero = None
+        if use_zotero:
+            try:
+                from .zotero_client import ZoteroTranslationClient, DEFAULT_SERVER_URL
+            except ImportError:
+                from zotero_client import ZoteroTranslationClient, DEFAULT_SERVER_URL
+
+            server_url = zotero_url or os.getenv("ZOTERO_TRANSLATION_SERVER") or DEFAULT_SERVER_URL
+            # The client is always used: Zotero's open-access index works with no
+            # local server. The server only adds the site-specific translator step.
+            self.zotero = ZoteroTranslationClient(server_url, session=self.session)
+            if self.zotero.is_available():
+                self.logger.info(
+                    f"Zotero resolver enabled (OA index + translation server at {server_url})")
+            else:
+                self.logger.warning(
+                    f"Zotero translation server not reachable at {server_url} - using the OA index "
+                    f"and citation_pdf_url only. Start it with: python scripts/setup_zotero.py")
+
         # Statistics
         self.stats = {
             'total': 0,
@@ -47,13 +104,16 @@ class PaperDownloader:
             'skipped': 0,
             'dois_found': 0,  # DOIs found via Crossref lookup
             'by_method': {
+                'zotero': 0,
                 'direct_pdf': 0,
                 'arxiv': 0,
                 'unpaywall': 0,
+                'browser': 0,
                 'scihub': 0
-            }
+            },
+            'time_by_method': {},  # method -> cumulative wall-clock seconds
         }
-        
+
         # Track failed downloads
         self.failed_papers = []
 
@@ -67,6 +127,7 @@ class PaperDownloader:
         self.logger.info(f"Output directory: {self.output_dir}")
         self.logger.info(f"Unpaywall enabled: {bool(self.unpaywall_email)}")
         self.logger.info(f"Sci-Hub enabled: {self.use_scihub}")
+        self.logger.info(f"Zotero translators: {'enabled (' + self.zotero.base_url + ')' if self.zotero else 'not available'}")
         self.logger.info("="*80)
         
         with open(bib_file, encoding="utf-8") as f:
@@ -76,13 +137,42 @@ class PaperDownloader:
         
         self.logger.info(f"Loaded {len(papers)} papers from {bib_file}")
         self.logger.info("")
-        
-        for i, entry in enumerate(papers, 1):
-            self.logger.info(f"[{i}/{len(papers)}] " + "-"*60)
-            self._download_paper(entry)
-        
+
+        self._download_all(papers)
+
         # Log summary
         self._log_summary()
+        self.close()
+
+    def _download_all(self, papers: List[dict]):
+        """
+        Download all papers, in parallel when max_workers > 1.
+
+        Each paper writes to a distinct destination file, so the only shared
+        state is stats/failed_papers, which `_record_outcome` guards with a lock.
+        """
+        total = len(papers)
+        if self.max_workers <= 1 or total <= 1:
+            for i, entry in enumerate(papers, 1):
+                self.logger.info(f"[{i}/{total}] " + "-"*60)
+                self._download_paper(entry)
+            return
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        self.logger.info(f"Downloading with {self.max_workers} parallel workers...")
+        completed = 0
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {executor.submit(self._download_paper, entry): entry for entry in papers}
+            for future in as_completed(futures):
+                completed += 1
+                try:
+                    future.result()
+                except Exception as e:
+                    # A worker crashing must not abort the whole run
+                    self.logger.error(f"Worker error: {e}")
+                    self._record_outcome(futures[future], 'failed')
+                self.logger.info(f"[{completed}/{total}] complete")
 
     def download_from_ris(self, ris_file: str):
         import rispy
@@ -94,6 +184,7 @@ class PaperDownloader:
         self.logger.info(f"Output directory: {self.output_dir}")
         self.logger.info(f"Unpaywall enabled: {bool(self.unpaywall_email)}")
         self.logger.info(f"Sci-Hub enabled: {self.use_scihub}")
+        self.logger.info(f"Zotero translators: {'enabled (' + self.zotero.base_url + ')' if self.zotero else 'not available'}")
         self.logger.info("="*80)
         
         with open(ris_file, encoding="utf-8") as f:
@@ -102,13 +193,12 @@ class PaperDownloader:
         
         self.logger.info(f"Loaded {len(entries)} papers from {ris_file}")
         self.logger.info("")
-        
-        for i, entry in enumerate(entries, 1):
-            self.logger.info(f"[{i}/{len(entries)}] " + "-"*60)
-            self._download_paper(entry)
-        
+
+        self._download_all(entries)
+
         # Log summary
         self._log_summary()
+        self.close()
 
     def _lookup_doi_from_title(self, title: str) -> Optional[str]:
         """
@@ -120,21 +210,19 @@ class PaperDownloader:
         Returns:
             DOI string if found, None otherwise
         """
-        import requests
-        
         if not title or title == "Unknown":
             return None
-        
+
         try:
             # Use Crossref API to search by title
             api_url = "https://api.crossref.org/works"
-            params = {
+            params = self._crossref_params({
                 'query.bibliographic': title,
                 'rows': 1,
                 'select': 'DOI,title,score'
-            }
-            
-            r = requests.get(api_url, params=params, timeout=10)
+            })
+
+            r = self.session.get(api_url, params=params, timeout=10)
             if r.status_code == 200:
                 data = r.json()
                 items = data.get('message', {}).get('items', [])
@@ -158,36 +246,71 @@ class PaperDownloader:
         
         return None
 
+    def _record_outcome(self, entry: dict, outcome: str, elapsed: float = 0.0):
+        """Thread-safely update statistics for one paper's download outcome.
+
+        `outcome` is a by_method key on success, or 'skipped' / 'failed'.
+        `elapsed` is wall-clock seconds spent on this paper, aggregated per
+        method so the summary can report average time per strategy.
+        """
+        with self._lock:
+            if outcome == 'skipped':
+                self.stats['skipped'] += 1
+            elif outcome == 'failed':
+                self.stats['failed'] += 1
+                self._store_failed_paper(entry)
+            else:
+                self.stats['success'] += 1
+                self.stats['by_method'][outcome] = self.stats['by_method'].get(outcome, 0) + 1
+                self.stats['time_by_method'][outcome] = \
+                    self.stats['time_by_method'].get(outcome, 0.0) + elapsed
+
     def _download_paper(self, entry: dict):
+        """Resolve and download one paper, recording the outcome in stats."""
+        import time
+        start = time.monotonic()
+        outcome = self._resolve_and_download(entry)
+        elapsed = time.monotonic() - start
+        self._record_outcome(entry, outcome, elapsed)
+        if outcome not in ('skipped', 'failed'):
+            self.logger.info(f"  ⏱ {elapsed:.1f}s via {outcome}")
+        return outcome
+
+    def _resolve_and_download(self, entry: dict) -> str:
+        """
+        Attempt every strategy in priority order for a single paper.
+
+        Returns the successful method name (a by_method key), 'skipped' if the
+        PDF already exists, or 'failed' if no strategy worked. Does NOT mutate
+        shared state, so it is safe to call from worker threads.
+        """
         title = entry.get("title") or entry.get("TI") or "Unknown"
         doi = entry.get("doi") or entry.get("DO")
         url = entry.get("url") or entry.get("UR")
         arxiv_id = entry.get("arxiv_id")
-        
+
         # Extract arXiv ID from URL if present (for @misc entries from arXiv)
         if not arxiv_id and url and "arxiv.org" in url.lower():
-            # Extract arXiv ID from URL
-            import re
-            match = re.search(r'arxiv\.org/(?:abs|pdf)/(\d+\.\d+)', url)
+            # Handle both new-style (2101.00001) and old-style (math/0211159) IDs
+            match = re.search(r'arxiv\.org/(?:abs|pdf)/([a-z\-]+/\d{7}|\d{4}\.\d{4,5})', url, re.IGNORECASE)
             if match:
                 arxiv_id = match.group(1)
-        
+
         # If no DOI, try to look it up via Crossref using the title
         if not doi and not arxiv_id and title != "Unknown":
             doi = self._lookup_doi_from_title(title)
-        
+
         pdf_url = None
         paper_id = doi or arxiv_id or title or url
         safe_name = self._safe_filename(paper_id)
         dest_path = self.output_dir / f"{safe_name}.pdf"
-        
+
         # Skip if already downloaded
         if dest_path.exists():
             self.logger.info(f"SKIP: {title[:80]}")
             self.logger.info(f"  → Already downloaded: {dest_path.name}")
-            self.stats['skipped'] += 1
-            return
-        
+            return 'skipped'
+
         self.logger.info(f"PROCESSING: {title[:80]}")
         if doi:
             self.logger.info(f"  DOI: {doi}")
@@ -195,37 +318,58 @@ class PaperDownloader:
             self.logger.info(f"  arXiv ID: {arxiv_id}")
         if url and not arxiv_id:
             self.logger.info(f"  URL: {url[:100]}")
-        
+
+        # 0. Zotero resolver chain (primary) - mirrors the desktop app's
+        #    "Add by identifier" flow: doi -> url -> pmcid -> OA index, with the
+        #    web translators extracting the PDF link from each landing page.
+        if self.zotero and (doi or url or entry.get("pmcid")):
+            self.logger.info(f"  → Trying Zotero resolver chain...")
+            found_any = False
+            for pdf_url, referer, method in self.zotero.iter_pdf_candidates(
+                    doi=doi, url=url, pmcid=entry.get("pmcid")):
+                found_any = True
+                self.logger.info(f"  → [{method}] candidate: {pdf_url[:80]}")
+                if self._download_pdf(pdf_url, dest_path, referer=referer):
+                    self.logger.info(f"  ✓ SUCCESS via {method}")
+                    return 'zotero'
+            if not found_any:
+                self.logger.info(f"  → Zotero: no candidates found, falling back")
+
+        # 0.5. Fast path: known Cloudflare-protected publishers block every
+        #    HTTP-based strategy below regardless of TLS fingerprint (measured:
+        #    Elsevier 4/49, Wiley 0/9 - see docs/ZOTERO_HOW_IT_WORKS.md). Jump
+        #    straight to the real-browser fetcher instead of burning time on
+        #    attempts that are known to fail for these domains.
+        if self.use_browser and url and self._is_browser_required_domain(url):
+            self.logger.info(f"  → Known bot-protected publisher - trying browser fetcher directly...")
+            browser = self._get_browser()
+            if browser and browser.fetch_pdf(self._browser_target(doi, url), dest_path, referer=None):
+                self.logger.info(f"  ✓ SUCCESS via browser (fast path)")
+                return 'browser'
+
         # 1. Try direct PDF link
         if url and url.endswith(".pdf"):
             self.logger.info(f"  → Trying direct PDF link...")
-            pdf_url = url
-            if self._download_pdf(pdf_url, dest_path):
+            if self._download_pdf(url, dest_path):
                 self.logger.info(f"  ✓ SUCCESS via direct PDF link")
-                self.stats['success'] += 1
-                self.stats['by_method']['direct_pdf'] += 1
-                return
-        
+                return 'direct_pdf'
+
         # 2. Try arXiv direct (check arXiv ID first, then DOI, then URL)
         if arxiv_id or (doi and "arxiv" in doi.lower()) or (url and "arxiv" in url.lower()):
             self.logger.info(f"  → Trying arXiv...")
             pdf_url = self._get_arxiv_pdf(entry)
             if pdf_url and self._download_pdf(pdf_url, dest_path):
                 self.logger.info(f"  ✓ SUCCESS via arXiv")
-                self.stats['success'] += 1
-                self.stats['by_method']['arxiv'] += 1
-                return
-        
+                return 'arxiv'
+
         # 2.5. Try bioRxiv/medRxiv (common for biomedical preprints)
         if url and ("biorxiv.org" in url.lower() or "medrxiv.org" in url.lower()):
             self.logger.info(f"  → Trying bioRxiv/medRxiv...")
             pdf_url = self._get_biorxiv_pdf(url)
             if pdf_url and self._download_pdf(pdf_url, dest_path):
                 self.logger.info(f"  ✓ SUCCESS via bioRxiv/medRxiv")
-                self.stats['success'] += 1
-                self.stats['by_method']['biorxiv'] = self.stats['by_method'].get('biorxiv', 0) + 1
-                return
-        
+                return 'biorxiv'
+
         # 3. Try Unpaywall (open access)
         if doi and self.unpaywall_email:
             self.logger.info(f"  → Checking Unpaywall...")
@@ -234,14 +378,12 @@ class PaperDownloader:
                 self.logger.info(f"  → Found OA version: {pdf_url[:80]}")
                 if self._download_pdf(pdf_url, dest_path):
                     self.logger.info(f"  ✓ SUCCESS via Unpaywall")
-                    self.stats['success'] += 1
-                    self.stats['by_method']['unpaywall'] += 1
-                    return
+                    return 'unpaywall'
             else:
                 self.logger.info(f"  → No open access version found")
         elif doi and not self.unpaywall_email:
             self.logger.warning(f"  ⚠ Unpaywall email not set, skipping OA check")
-        
+
         # 3.2. Try Crossref API for full-text links
         if doi:
             self.logger.info(f"  → Checking Crossref for full-text...")
@@ -250,51 +392,31 @@ class PaperDownloader:
                 self.logger.info(f"  → Found via Crossref: {pdf_url[:80]}")
                 if self._download_pdf(pdf_url, dest_path):
                     self.logger.info(f"  ✓ SUCCESS via Crossref")
-                    self.stats['success'] += 1
-                    self.stats['by_method']['crossref'] = self.stats['by_method'].get('crossref', 0) + 1
-                    return
-        
+                    return 'crossref'
+
         # 3.5. Try PubMed Central (if PMID or PMC ID available)
         pmid = entry.get("pmid") or entry.get("PMID")
         if pmid or (url and "pubmed.ncbi.nlm.nih.gov" in url):
             self.logger.info(f"  → Checking PubMed Central...")
             if not pmid and url:
-                # Extract PMID from URL
-                import re
                 match = re.search(r'pubmed\.ncbi\.nlm\.nih\.gov/(\d+)', url)
                 if match:
                     pmid = match.group(1)
-            
+
             if pmid:
                 pdf_url = self._get_pmc_pdf(pmid)
                 if pdf_url and self._download_pdf(pdf_url, dest_path):
                     self.logger.info(f"  ✓ SUCCESS via PubMed Central")
-                    self.stats['success'] += 1
-                    self.stats['by_method']['pmc'] = self.stats['by_method'].get('pmc', 0) + 1
-                    return
-        
+                    return 'pmc'
+
         # 4. Try common publisher patterns (MDPI, Frontiers, etc.)
         if url and doi:
             self.logger.info(f"  → Trying publisher-specific patterns...")
             pdf_url = self._get_publisher_pdf(url, doi)
             if pdf_url and self._download_pdf(pdf_url, dest_path):
                 self.logger.info(f"  ✓ SUCCESS via publisher pattern")
-                self.stats['success'] += 1
-                self.stats['by_method']['publisher'] = self.stats['by_method'].get('publisher', 0) + 1
-                return
-        
-        # 4.5. Try ResearchGate and Academia.edu (many authors upload there)
-        if title and title != "Unknown":
-            self.logger.info(f"  → Checking ResearchGate and Academia.edu...")
-            pdf_url = self._get_academic_social_pdf(title, authors=entry.get("author", ""))
-            if pdf_url:
-                self.logger.info(f"  → Found on academic social network: {pdf_url[:80]}")
-                if self._download_pdf(pdf_url, dest_path):
-                    self.logger.info(f"  ✓ SUCCESS via ResearchGate/Academia.edu")
-                    self.stats['success'] += 1
-                    self.stats['by_method']['researchgate'] = self.stats['by_method'].get('researchgate', 0) + 1
-                    return
-        
+                return 'publisher'
+
         # 4.6. Try scraping HTML page for PDF link
         if url:
             self.logger.info(f"  → Trying to scrape PDF link from page...")
@@ -303,65 +425,77 @@ class PaperDownloader:
                 self.logger.info(f"  → Found PDF link: {pdf_url[:80]}")
                 if self._download_pdf(pdf_url, dest_path):
                     self.logger.info(f"  ✓ SUCCESS via HTML scraping")
-                    self.stats['success'] += 1
-                    self.stats['by_method']['scraping'] = self.stats['by_method'].get('scraping', 0) + 1
-                    return
-        
+                    return 'scraping'
+
+        # 4.7. Last resort: real-browser fetcher (Firefox/Gecko). Slow, so it
+        #    only runs here - after every cheaper HTTP-based strategy failed.
+        #    (Skipped if the 0.5 fast path above already tried it for this URL.)
+        if self.use_browser and (url or doi) and not (url and self._is_browser_required_domain(url)):
+            target = self._browser_target(doi, url)
+            self.logger.info(f"  → Trying real-browser fetcher (last resort): {target[:80]}")
+            browser = self._get_browser()
+            if browser:
+                if browser.fetch_pdf(target, dest_path, referer=None):
+                    self.logger.info(f"  ✓ SUCCESS via browser")
+                    return 'browser'
+
         # 5. Fallback: Sci-Hub (if enabled)
         if self.use_scihub and doi:
             self.logger.info(f"  → Trying Sci-Hub...")
             pdf_path = self._get_scihub_pdf(doi, dest_path)
             if pdf_path and dest_path.exists():
                 self.logger.info(f"  ✓ SUCCESS via Sci-Hub")
-                self.stats['success'] += 1
-                self.stats['by_method']['scihub'] += 1
-                return
-        
-        # 6. Log failure and store paper info
+                return 'scihub'
+
+        # 6. Nothing worked
         self.logger.error(f"  ✗ FAILED: Could not download from any source")
         if not doi and not arxiv_id:
             self.logger.error(f"  → No DOI or arXiv ID available")
-        self.stats['failed'] += 1
-        
-        # Store failed paper entry for later export
-        self._store_failed_paper(entry)
+        return 'failed'
 
-    def _download_pdf(self, pdf_url: str, dest_path: Path, retry_count: int = 0, max_retries: int = 3) -> bool:
+    def _download_pdf(self, pdf_url: str, dest_path: Path, retry_count: int = 0, max_retries: int = 3,
+                      referer: Optional[str] = None) -> bool:
         import requests
         import time
-        
+
         try:
             self.logger.info(f"Downloading from: {pdf_url}")
-            
-            # Comprehensive headers that mimic real browser
+
+            # Per-request headers (User-Agent comes from the shared session)
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'application/pdf,application/octet-stream,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
                 'DNT': '1',
-                'Connection': 'keep-alive',
                 'Upgrade-Insecure-Requests': '1',
-                'Referer': 'https://www.google.com/',
+                'Referer': referer or 'https://www.google.com/',
             }
-            
-            # Special handling for arXiv
-            if 'arxiv.org' in pdf_url.lower():
-                # arXiv sometimes redirects, add timeout to avoid hangs
-                r = requests.get(pdf_url, timeout=15, headers=headers, allow_redirects=True, stream=True)
-            else:
-                r = requests.get(pdf_url, timeout=30, headers=headers, allow_redirects=True, stream=True)
-            
+
+            timeout = 15 if 'arxiv.org' in pdf_url.lower() else 30
+            r = self.session.get(pdf_url, timeout=timeout, headers=headers,
+                                 allow_redirects=True, stream=True)
+
             if r.status_code == 200:
                 content_type = r.headers.get('content-type', '').lower()
-                
-                # Verify it's actually a PDF
-                if 'application/pdf' in content_type or (r.content and r.content[:4] == b'%PDF'):
+
+                # Peek at the first bytes to confirm it's a PDF before saving
+                chunks = r.iter_content(chunk_size=65536)
+                try:
+                    first = next(chunks)
+                except StopIteration:
+                    first = b''
+
+                is_pdf = 'application/pdf' in content_type or first[:4] == b'%PDF'
+                if is_pdf:
+                    # Stream to disk in chunks instead of buffering the whole file
                     with open(dest_path, "wb") as f:
-                        f.write(r.content)
+                        if first:
+                            f.write(first)
+                        for chunk in chunks:
+                            if chunk:
+                                f.write(chunk)
                     file_size = dest_path.stat().st_size
                     self.logger.info(f"Successfully saved PDF ({file_size} bytes)")
-                    
+
                     # Verify file is not corrupt (PDF should be > 5KB)
                     if file_size > 5000:
                         return True
@@ -379,24 +513,33 @@ class PaperDownloader:
                     wait_time = min(2 ** retry_count, 10)  # Exponential backoff: 1, 2, 4, 8, 10 seconds
                     self.logger.warning(f"HTTP 429 Too Many Requests - retrying in {wait_time}s ({retry_count + 1}/{max_retries})")
                     time.sleep(wait_time)
-                    return self._download_pdf(pdf_url, dest_path, retry_count + 1, max_retries)
+                    return self._download_pdf(pdf_url, dest_path, retry_count + 1, max_retries, referer=referer)
                 else:
                     self.logger.error(f"HTTP 429 - max retries exceeded")
             else:
                 self.logger.warning(f"HTTP {r.status_code} for URL: {pdf_url}")
-        except requests.exceptions.Timeout:
-            self.logger.warning(f"Request timeout - server took too long to respond")
-        except requests.exceptions.ConnectionError:
-            self.logger.warning(f"Connection error - check internet or server availability")
         except Exception as e:
-            self.logger.error(f"PDF download error: {pdf_url} - {e}")
+            # Covers requests.* and curl_cffi.* transport errors alike
+            name = type(e).__name__
+            if "Timeout" in name:
+                self.logger.warning(f"Request timeout - server took too long to respond")
+            elif "Connection" in name:
+                self.logger.warning(f"Connection error - check internet or server availability")
+            else:
+                self.logger.error(f"PDF download error: {pdf_url} - {e}")
         return False
 
+    def _crossref_params(self, extra: Optional[dict] = None) -> dict:
+        """Crossref query params including a mailto for the faster 'polite pool'."""
+        params = dict(extra or {})
+        if self.unpaywall_email:
+            params['mailto'] = self.unpaywall_email
+        return params
+
     def _get_unpaywall_pdf(self, doi: str) -> Optional[str]:
-        import requests
         api = f"https://api.unpaywall.org/v2/{doi}?email={self.unpaywall_email}"
         try:
-            r = requests.get(api, timeout=15)
+            r = self.session.get(api, timeout=15)
             if r.status_code == 200:
                 data = r.json()
                 oa_location = data.get("best_oa_location")
@@ -411,11 +554,10 @@ class PaperDownloader:
         Check Crossref API for full-text links and license information.
         Some publishers provide direct PDF links via Crossref.
         """
-        import requests
         try:
             # Query Crossref for this DOI
             api_url = f"https://api.crossref.org/works/{doi}"
-            r = requests.get(api_url, timeout=10)
+            r = self.session.get(api_url, params=self._crossref_params(), timeout=10)
             
             if r.status_code == 200:
                 data = r.json().get('message', {})
@@ -441,84 +583,34 @@ class PaperDownloader:
         
         return None
 
-    def _get_academic_social_pdf(self, title: str, authors: str = "") -> Optional[str]:
-        """
-        Try to find paper on academic social networks like ResearchGate and Academia.edu.
-        Many researchers upload their papers there for sharing.
-        """
-        import requests
-        import re
-        from urllib.parse import quote
-        
-        try:
-            # Clean title for search
-            search_title = title[:80].strip()
-            search_query = quote(search_title)
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            
-            # Try ResearchGate
-            try:
-                rg_url = f"https://www.researchgate.net/publication/search?q={search_query}"
-                r = requests.get(rg_url, timeout=10, headers=headers)
-                
-                if r.status_code == 200 and 'researchgate.net' in r.url:
-                    # Look for PDF download links
-                    pdf_patterns = [
-                        r'href=["\']([^"\']*(?:download|pdf)[^"\']*\.pdf[^"\']*)["\']',
-                        r'"fullText"["\']?\s*:\s*"([^"]+\.pdf[^"]*)"',
-                        r'data-ua-action-data="([^"]*\.pdf[^"]*)"'
-                    ]
-                    for pattern in pdf_patterns:
-                        match = re.search(pattern, r.text)
-                        if match:
-                            pdf_url = match.group(1)
-                            if not pdf_url.startswith('http'):
-                                pdf_url = 'https://www.researchgate.net' + pdf_url
-                            return pdf_url
-            except Exception as e:
-                self.logger.debug(f"ResearchGate search error: {e}")
-            
-        except Exception as e:
-            self.logger.debug(f"Academic social network search error: {e}")
-        
-        return None
-    
+    # New-style (2101.00001) or old-style (math/0211159, cond-mat/0211159) arXiv IDs
+    _ARXIV_ID_RE = re.compile(r'([a-z\-]+(?:\.[A-Z]{2})?/\d{7}|\d{4}\.\d{4,5})(v\d+)?', re.IGNORECASE)
+
     def _get_arxiv_pdf(self, entry: dict) -> Optional[str]:
         arxiv_id = None
-        
+
         # Check direct arXiv ID field
-        if "arxiv_id" in entry and entry["arxiv_id"]:
+        if entry.get("arxiv_id"):
             arxiv_id = entry["arxiv_id"]
-        # Check DOI for arXiv pattern
-        elif "doi" in entry and entry["doi"] and "arxiv" in entry["doi"].lower():
-            if entry["doi"].startswith("10.48550/arXiv."):
-                arxiv_id = entry["doi"].split("arXiv.")[-1]
-            else:
-                # Try to extract from DOI string
-                parts = entry["doi"].split("/")
-                for part in parts:
-                    if part.replace(".", "").replace("v", "").isdigit():
-                        arxiv_id = part
-                        break
+        # Check DOI for arXiv pattern (e.g. 10.48550/arXiv.2101.00001)
+        elif entry.get("doi") and "arxiv" in entry["doi"].lower():
+            m = self._ARXIV_ID_RE.search(entry["doi"])
+            if m:
+                arxiv_id = m.group(1)
         # Check URL for arXiv pattern
-        elif "url" in entry and entry["url"] and "arxiv" in entry["url"].lower():
-            url = entry["url"]
-            # Extract from URL like https://arxiv.org/abs/2101.00001
-            if "/abs/" in url:
-                arxiv_id = url.split("/abs/")[-1].split(".pdf")[0].split("v")[0]
-            elif "/pdf/" in url:
-                arxiv_id = url.split("/pdf/")[-1].split(".pdf")[0].split("v")[0]
-        
+        elif entry.get("url") and "arxiv" in entry["url"].lower():
+            m = self._ARXIV_ID_RE.search(entry["url"])
+            if m:
+                arxiv_id = m.group(1)
+
         if arxiv_id:
-            # Clean arXiv ID (remove version if present)
-            arxiv_id = arxiv_id.split("v")[0].strip()
-            # Use abstract endpoint which redirects to PDF - more reliable
-            pdf_url = f"https://arxiv.org/abs/{arxiv_id}"
-            self.logger.info(f"Constructed arXiv abstract URL (will redirect to PDF): {pdf_url}")
+            # Strip a trailing version suffix (vN) only, preserving old-style IDs
+            arxiv_id = re.sub(r'v\d+$', '', arxiv_id.strip())
+            # /pdf/ serves the PDF directly; /abs/ is an HTML page and does NOT redirect
+            pdf_url = f"https://arxiv.org/pdf/{arxiv_id}"
+            self.logger.info(f"Constructed arXiv PDF URL: {pdf_url}")
             return pdf_url
-        
+
         return None
     
     def _get_biorxiv_pdf(self, url: str) -> Optional[str]:
@@ -557,50 +649,61 @@ class PaperDownloader:
     
     def _get_pmc_pdf(self, pmid: str) -> Optional[str]:
         """
-        Try to get PDF from PubMed Central using PMID.
-        PMC provides free full-text access for many papers.
-        Also tries Europe PMC as fallback.
+        Try to get a direct PDF link for a PMC article using its PMID.
+
+        The old approach returned `/pmc/articles/{pmcid}/pdf/` (a directory URL
+        that serves HTML, not a PDF) and NCBI blocks scripted access to article
+        pages with HTTP 403 anyway. Instead we use the documented NCBI Open
+        Access web service, which returns the real PDF href when the article is
+        in the OA subset, then fall back to Europe PMC.
+
+        Note: for reliable PMC downloads, run the Zotero translation server -
+        its PMC translator resolves the exact PDF URL in a browser-like context.
         """
-        import requests
+        from xml.etree import ElementTree as ET
+
         try:
-            # First, check if paper is available in PMC
+            # Resolve PMID -> PMCID
             pmc_api = f"https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/?ids={pmid}&format=json"
-            r = requests.get(pmc_api, timeout=10)
-            
+            r = self.session.get(pmc_api, timeout=10)
+            pmcid = None
             if r.status_code == 200:
-                data = r.json()
-                records = data.get('records', [])
-                
-                if records and len(records) > 0:
-                    record = records[0]
-                    pmcid = record.get('pmcid')
-                    
-                    if pmcid:
-                        # Try to get PDF from PMC
-                        pdf_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/pdf/"
-                        self.logger.info(f"  → Found PMC ID: {pmcid}")
+                records = r.json().get('records', [])
+                if records:
+                    pmcid = records[0].get('pmcid')
+
+            if not pmcid:
+                self.logger.debug(f"  → No US PMC record, trying Europe PMC...")
+                return self._get_europepmc_pdf(pmid)
+
+            self.logger.info(f"  → Found PMC ID: {pmcid}")
+
+            # Query the NCBI OA service for a direct PDF href
+            oa_api = f"https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id={pmcid}"
+            r = self.session.get(oa_api, timeout=10)
+            if r.status_code == 200:
+                root = ET.fromstring(r.content)
+                for link in root.findall('.//link'):
+                    if link.get('format') == 'pdf' and link.get('href'):
+                        # OA hrefs use ftp://; serve over https from the same host
+                        href = link.get('href')
+                        pdf_url = href.replace('ftp://ftp.ncbi.nlm.nih.gov', 'https://ftp.ncbi.nlm.nih.gov')
+                        self.logger.info(f"  → PMC OA PDF: {pdf_url[:80]}")
                         return pdf_url
-                    else:
-                        self.logger.debug(f"  → Paper not available in US PMC, trying Europe PMC...")
-                        # Try Europe PMC as fallback
-                        return self._get_europepmc_pdf(pmid)
-                else:
-                    self.logger.debug(f"  → No US PMC record, trying Europe PMC...")
-                    return self._get_europepmc_pdf(pmid)
-                        
+
+            # No direct OA PDF - try Europe PMC
+            self.logger.debug(f"  → No OA PDF for {pmcid}, trying Europe PMC...")
+            return self._get_europepmc_pdf(pmid)
+
         except Exception as e:
             self.logger.debug(f"PubMed Central error for PMID {pmid}: {e}")
-            # Try Europe PMC as fallback
             return self._get_europepmc_pdf(pmid)
-        
-        return None
     
     def _get_europepmc_pdf(self, pmid: str) -> Optional[str]:
         """
         Try to get PDF from Europe PubMed Central.
         Europe PMC often has papers not in US PMC.
         """
-        import requests
         try:
             # Check Europe PMC for full text availability
             api_url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search"
@@ -609,8 +712,8 @@ class PaperDownloader:
                 'format': 'json',
                 'resultType': 'core'
             }
-            
-            r = requests.get(api_url, params=params, timeout=10)
+
+            r = self.session.get(api_url, params=params, timeout=10)
             if r.status_code == 200:
                 data = r.json()
                 results = data.get('resultList', {}).get('result', [])
@@ -710,17 +813,14 @@ class PaperDownloader:
         Works for many open access repositories and publishers.
         Enhanced with more patterns and better error handling.
         """
-        import requests
         from bs4 import BeautifulSoup
-        
+
         try:
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             }
-            r = requests.get(url, timeout=15, headers=headers)
+            r = self.session.get(url, timeout=15, headers=headers)
             if r.status_code != 200:
                 return None
             
@@ -824,6 +924,69 @@ class PaperDownloader:
         
         return None
 
+    def _is_browser_required_domain(self, url: str) -> bool:
+        """Whether `url` is a publisher known to block every HTTP strategy."""
+        try:
+            from .browser_fetcher import is_browser_required_domain
+        except ImportError:
+            from browser_fetcher import is_browser_required_domain
+        return is_browser_required_domain(url)
+
+    # Search sources hand us a record/landing URL on the DATABASE, not the
+    # publisher - e.g. Scopus gives scopus.com/inward/record.uri and PubMed
+    # gives pubmed.ncbi.nlm.nih.gov/<pmid>/. Those pages are login-walled and
+    # have no PDF, so pointing the browser at them is futile. The DOI is the
+    # authoritative route: https://doi.org/<DOI> redirects to the real
+    # publisher article page (exactly what Zotero's `doi` resolver uses).
+    _AGGREGATOR_HOSTS = (
+        "scopus.com", "pubmed.ncbi.nlm.nih.gov", "ncbi.nlm.nih.gov",
+        "semanticscholar.org", "webofscience.com", "lens.org",
+        "europepmc.org", "dimensions.ai",
+    )
+
+    def _browser_target(self, doi, url):
+        """Best URL to hand the browser: the DOI resolver when `url` is a
+        database record page (or missing), otherwise the URL itself."""
+        if doi and (not url or any(h in url.lower() for h in self._AGGREGATOR_HOSTS)):
+            return f"https://doi.org/{doi}"
+        return url or f"https://doi.org/{doi}"
+
+    def _get_browser(self):
+        """
+        Lazily start the real-browser fetcher on first use.
+
+        Returns None if unavailable (not installed, or failed to launch);
+        `False` is cached internally so we don't retry launching for every
+        paper in a run once it's known to be broken.
+        """
+        if not self.use_browser:
+            return None
+        with self._browser_lock:
+            if self._browser_fetcher is None:
+                try:
+                    from .browser_fetcher import BrowserFetcher
+                except ImportError:
+                    from browser_fetcher import BrowserFetcher
+                self.logger.info("Starting browser fetcher (Firefox) - first use may take a few seconds...")
+                fetcher = BrowserFetcher()
+                if fetcher.is_available():
+                    self._browser_fetcher = fetcher
+                    engine = "Camoufox (anti-detect)" if fetcher.using_camoufox else "stock Firefox"
+                    self.logger.info(f"Browser fetcher ready [{engine}]")
+                    if not fetcher.using_camoufox:
+                        self.logger.warning(
+                            "  Using stock Playwright Firefox - navigator.webdriver is visible and "
+                            "Cloudflare-protected publishers will likely still challenge it. "
+                            "Install camoufox for the fix: pip install camoufox[geoip] && python -m camoufox fetch"
+                        )
+                else:
+                    self.logger.warning(
+                        f"Browser fetcher unavailable ({fetcher._error}). "
+                        f"Run: pip install playwright && playwright install firefox"
+                    )
+                    self._browser_fetcher = False
+        return self._browser_fetcher or None
+
     def _get_scihub_pdf(self, doi: str, dest_path: Path) -> Optional[Path]:
         """
         Try to download from Sci-Hub using the scihub library.
@@ -867,7 +1030,20 @@ class PaperDownloader:
         return None
 
     def _safe_filename(self, name: str) -> str:
-        return "".join(c if c.isalnum() else "_" for c in name)[:80]
+        """
+        Build a filesystem-safe filename from an identifier.
+
+        Truncating a long title to 80 chars can make two different papers map to
+        the same name (the second is then wrongly skipped as "already
+        downloaded"). Append a short hash of the full identifier so distinct
+        papers never collide, while equal identifiers stay stable (idempotent
+        skip-if-exists still works).
+        """
+        import hashlib
+
+        cleaned = "".join(c if c.isalnum() else "_" for c in name)
+        digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:8]
+        return f"{cleaned[:70]}_{digest}"
     
     def _store_failed_paper(self, entry: dict):
         """
@@ -940,6 +1116,14 @@ class PaperDownloader:
         """
         return self.failed_papers
     
+    def close(self):
+        """
+        Release resources held by this downloader (currently: the browser
+        fetcher, if one was started). Safe to call even if never used.
+        """
+        if self._browser_fetcher:
+            self._browser_fetcher.close()
+
     def _log_summary(self):
         """Log download session summary with statistics"""
         self.logger.info("")
@@ -953,10 +1137,12 @@ class PaperDownloader:
         if self.stats.get('dois_found', 0) > 0:
             self.logger.info(f"DOIs found via Crossref: {self.stats['dois_found']}")
         self.logger.info("")
-        self.logger.info("Downloads by method:")
+        self.logger.info("Downloads by method (count, avg time/paper):")
+        times = self.stats.get('time_by_method', {})
         for method, count in self.stats['by_method'].items():
             if count > 0:
-                self.logger.info(f"  {method.replace('_', ' ').title()}: {count}")
+                avg = times.get(method, 0.0) / count if count else 0.0
+                self.logger.info(f"  {method.replace('_', ' ').title()}: {count}  (avg {avg:.1f}s)")
         self.logger.info("="*80)
         self.logger.info("")
 

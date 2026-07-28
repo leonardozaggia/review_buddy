@@ -7,9 +7,10 @@ Usage:
     python 03_download_papers.py
 
 Configuration:
-    Set UNPAYWALL_EMAIL in .env file (see .env.example)
+    All options live in config.yaml (see config.example.yaml) under `download:`.
+    API keys / emails stay in .env (see .env.example).
 """
- 
+
 import os
 import sys
 from pathlib import Path
@@ -20,17 +21,25 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.searchers.paper_downloader import PaperDownloader
 from src.utils import save_failed_downloads
+from src.settings import load_settings
 
-# Load environment variables
+# Load environment variables and run configuration
 load_dotenv()
+CONFIG = load_settings().download
 
-# Configuration
-filtered = Path("results/references_filtered.bib")
-default = Path("results/references.bib")
+# Resolve settings (bib_file: explicit if set, else auto-pick filtered > default)
+if CONFIG.get("bib_file"):
+    BIB_FILE = Path(CONFIG["bib_file"])
+else:
+    filtered = Path("results/references_filtered.bib")
+    default = Path("results/references.bib")
+    BIB_FILE = filtered if filtered.exists() else default
 
-BIB_FILE = filtered if filtered.exists() else default
-OUTPUT_DIR = Path("results/pdfs")
-USE_SCIHUB = False  # Set to True to enable Sci-Hub fallback (use responsibly)
+OUTPUT_DIR = Path(CONFIG.get("output_dir", "results/pdfs"))
+USE_SCIHUB = CONFIG.get("use_scihub", False)
+USE_ZOTERO = CONFIG.get("use_zotero", True)
+MAX_WORKERS = CONFIG.get("max_workers", 4)
+USE_BROWSER = CONFIG.get("use_browser", False)
 
 def main():
     """Main execution function"""
@@ -64,6 +73,7 @@ def main():
     print(f"Output directory: {OUTPUT_DIR}")
     print(f"Unpaywall email: {unpaywall_email or 'Not set'}")
     print(f"Sci-Hub enabled: {USE_SCIHUB}")
+    print(f"Browser fetcher enabled: {USE_BROWSER}")
     print()
     
     # Create downloader
@@ -75,7 +85,11 @@ def main():
     downloader = PaperDownloader(
         output_dir=str(OUTPUT_DIR),
         use_scihub=USE_SCIHUB,
-        unpaywall_email=unpaywall_email
+        unpaywall_email=unpaywall_email,
+        use_zotero=USE_ZOTERO,
+        zotero_url=os.getenv("ZOTERO_TRANSLATION_SERVER"),
+        max_workers=MAX_WORKERS,
+        use_browser=USE_BROWSER
     )
     
     # Download papers

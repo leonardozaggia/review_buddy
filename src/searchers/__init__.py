@@ -8,6 +8,8 @@ from .arxiv_searcher import ArxivSearcher
 from .scholar_searcher import ScholarSearcher
 from .ieee_searcher import IEEESearcher
 from .paper_downloader import PaperDownloader
+from .zotero_client import ZoteroTranslationClient
+from .browser_fetcher import BrowserFetcher
 
 __all__ = [
     "ScopusSearcher",
@@ -16,4 +18,6 @@ __all__ = [
     "ScholarSearcher",
     "IEEESearcher",
     "PaperDownloader",
+    "ZoteroTranslationClient",
+    "BrowserFetcher",
 ]

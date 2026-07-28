@@ -7,23 +7,42 @@ The Paper Downloader module automatically downloads PDFs for papers from your se
 ## Features
 
 ✅ **Multi-strategy download approach with automatic fallback:**
+0. **Zotero translators** (primary — hundreds of site-specific PDF resolvers; requires the translation server, see below)
 1. Direct PDF links (if available in metadata)
 2. arXiv PDFs (fully automatic, no API key needed)
 3. bioRxiv/medRxiv (for biomedical preprints)
 4. Unpaywall (open access papers via DOI)
-5. Crossref API (full-text links)
-6. PubMed Central (US & Europe mirrors)
+5. Crossref API (full-text links, uses the polite pool when an email is set)
+6. PubMed Central (NCBI Open Access service & Europe PMC)
 7. Publisher-specific patterns (MDPI, Frontiers, Nature, IEEE, ScienceDirect, Springer, PLOS)
-8. ResearchGate & Academia.edu (academic social networks)
-9. HTML scraping (extracts PDF links from paper pages)
-10. Sci-Hub (optional fallback for paywalled papers)
+8. HTML scraping (extracts PDF links from paper pages)
+9. Sci-Hub (optional fallback for paywalled papers)
 
 ✅ **Smart handling:**
 - DOI lookup via Crossref (if DOI missing)
-- Deduplication (skips already downloaded papers)
+- Deduplication (skips already downloaded papers; filenames are collision-safe)
+- Parallel downloading (configurable worker count)
+- Shared connection pool (HTTP keep-alive across requests)
 - Robust error handling and detailed logging
-- User-agent spoofing for better compatibility
-- PDF content validation
+- Browser-like User-Agent for better compatibility
+- Streaming download with PDF content validation
+
+> **Note:** ResearchGate/Academia.edu scraping was removed — it required
+> JavaScript, sat behind Cloudflare, and essentially never succeeded while
+> risking IP blocks. Zotero translators cover that ground far more reliably.
+
+### Zotero translation server (primary fetcher)
+
+Set it up once, then leave it running while you download:
+
+```bash
+python scripts/setup_zotero.py                        # one-time
+cd vendor/translation-server && node src/server.js    # start (port 1969)
+```
+
+If it is not running, the downloader logs a notice and uses the built-in
+strategies (1–9) only. See the main README for details and a method-by-method
+benchmark.
 
 ## Setup
 

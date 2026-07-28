@@ -1,0 +1,23 @@
+diff --git a/src/webSession.js b/src/webSession.js
+index 47c50b0..4e8d84d 100644
+--- a/src/webSession.js
++++ b/src/webSession.js
+@@ -274,7 +274,17 @@ WebSession.prototype.translate = async function (translate, translators) {
+ 	
+ 	var json = [];
+ 	for (let item of items) {
+-		json.push(...Zotero.Utilities.Item.itemToAPIJSON(item));
++		let apiItems = Zotero.Utilities.Item.itemToAPIJSON(item);
++		// review_buddy patch: itemToAPIJSON drops the `attachments` field, so
++		// translator-derived PDF links never reach the client. Re-attach them
++		// (URL-based only) onto the primary API item so downstream tools can
++		// use Zotero's site-specific PDF resolution.
++		if (apiItems.length && Array.isArray(item.attachments) && item.attachments.length) {
++			apiItems[0].attachments = item.attachments
++				.filter(a => a && a.url)
++				.map(a => ({ title: a.title, mimeType: a.mimeType, url: a.url }));
++		}
++		json.push(...apiItems);
+ 	}
+ 	this.ctx.response.status = 200;
+ 	this.ctx.response.body = json;

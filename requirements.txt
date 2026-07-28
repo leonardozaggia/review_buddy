@@ -8,6 +8,7 @@ python-dotenv>=1.0.0
 beautifulsoup4>=4.12.0
 tqdm>=4.66.0
 pandas>=2.0.0
+PyYAML>=6.0            # reads config.yaml (central run configuration)
 
 # Bibliography parsing and generation (required for downloader)
 bibtexparser>=1.4.0
@@ -22,3 +23,28 @@ scihub
 
 # Language detection (optional - for abstract filtering)
 langdetect>=1.0.9
+
+# Browser TLS impersonation (strongly recommended for downloads).
+# Many publishers - including open-access ones like MDPI, PLOS and PMC - return
+# HTTP 403 to a plain `requests` client purely on TLS fingerprint. The downloader
+# falls back to `requests` automatically if this isn't installed.
+curl_cffi>=0.7.0
+
+# Benchmark visualization (optional - for scripts/benchmark_downloaders.py)
+matplotlib>=3.7.0
+
+# Testing (optional - for the test suite in tests/)
+pytest>=7.0.0
+
+# Real-browser PDF fetcher (optional - last-resort strategy for Cloudflare-
+# protected publishers: Elsevier/ScienceDirect, Wiley, MDPI). Requires the
+# `camoufox fetch` step below to download the patched Firefox build.
+# See docs/ZOTERO_HOW_IT_WORKS.md for why this specific engine is needed
+# (a plain Playwright Firefox exposes navigator.webdriver=True and still gets
+# challenged; Camoufox patches that out while keeping the same Gecko engine).
+camoufox[geoip]>=0.4.0
+playwright>=1.40.0
+# After installing, run once: python -m camoufox fetch
+
+# Note: the Zotero translation server (primary PDF fetcher) is a git submodule,
+# not a pip package. Set it up with: python scripts/setup_zotero.py (needs Node.js)
