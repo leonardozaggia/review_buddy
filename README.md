@@ -74,11 +74,29 @@ ollama pull gemma3:4b
 # 3. Start Ollama server (in a separate terminal)
 ollama serve
 
-# 4. Run AI filtering
+# 4. Run AI filtering (main.py --ai starts Ollama and pulls the model for you)
+python main.py --ai
+# ...or run just this step directly:
 python 02_abstract_filter_ai.py
 ```
 
-The script will cache LLM responses to avoid redundant API calls. First run may take 10-30 minutes depending on the number of papers and your hardware. Subsequent runs with cached papers are much faster.
+**How long it takes.** The LLM is called once per paper with an abstract, so
+runtime scales linearly with corpus size. Measured on a 6GB-VRAM laptop GPU:
+
+| model | per paper | per 1000 papers | agreement with hand labels |
+|-------|-----------|-----------------|----------------------------|
+| `gemma3:4b`   | ~7-16s | ~2-4.5h | 0.906 |
+| `gemma3:12b`  | ~37s   | ~10h    | 0.935 |
+| `gpt-oss:20b` | ~20s   | ~5.5h   | 0.971 |
+
+A few thousand abstracts is an overnight job, not a coffee break. Responses are
+cached under `results/ai_cache/`, so an interrupted run resumes cheaply and
+re-runs are near-instant. The cache key includes the model name and the filter
+set, so changing either correctly forces a re-evaluation rather than silently
+reusing the old verdicts.
+
+Use `gemma3:4b` while you are still iterating on filter wording, then do the
+final pass with `gpt-oss:20b` if the extra accuracy is worth the wall time.
 
 **Output files:**
 - `papers_filtered_ai.csv` / `references_filtered_ai.bib` - Filtered papers
