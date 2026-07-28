@@ -9,7 +9,7 @@ import logging
 import json
 import time
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from pathlib import Path
 import hashlib
 import requests
@@ -33,27 +33,38 @@ class OllamaClient:
     """
     
     def __init__(
-        self, 
+        self,
         model: str = "llama3.1",
         base_url: str = "http://localhost:11434",
         temperature: float = 0.0,
         cache_dir: Optional[Path] = None,
-        retry_attempts: int = 3
+        retry_attempts: int = 3,
+        structured_output: bool = True
     ):
         """
         Initialize Ollama client.
-        
+
         Args:
             model: Model to use (must be available in Ollama)
             base_url: Ollama server URL (default: localhost)
             temperature: Sampling temperature (0.0 for deterministic)
             cache_dir: Directory to cache responses (None = no caching)
             retry_attempts: Number of retry attempts on failure
+            structured_output: Constrain replies to a JSON schema via Ollama's
+                `format` field. Without it most models wrap the JSON in prose or
+                code fences and we have to salvage it by regex. A few models
+                (notably gpt-oss) return an empty string when `format` is set;
+                that is detected at runtime and the model falls back to plain
+                prompting automatically.
         """
         self.base_url = base_url.rstrip('/')
         self.model = model
         self.temperature = temperature
         self.retry_attempts = retry_attempts
+        self.structured_output = structured_output
+        # Flipped off permanently for this process if the model turns out to
+        # return nothing when `format` is supplied.
+        self._schema_supported = structured_output
         
         # Setup caching
         self.cache_enabled = cache_dir is not None
@@ -87,9 +98,24 @@ Rules:
 - Include ALL filters mentioned in the user prompt
 - Output ONLY the JSON object - no preamble, no commentary, no extra tokens"""
     
-    def _get_cache_key(self, paper: Paper, filters: Dict[str, str]) -> str:
-        """Generate cache key for a paper and filter set."""
-        content = f"{paper.title}|{paper.abstract}|{json.dumps(filters, sort_keys=True)}"
+    def _get_cache_key(
+        self,
+        paper: Paper,
+        filters: Dict[str, str],
+        inverted: Optional[Set[str]] = None
+    ) -> str:
+        """
+        Generate cache key for a paper and filter set.
+
+        The model name and the inverted-filter set are both part of the key:
+        each changes the verdict for an unchanged paper, so leaving either out
+        would serve stale answers after a config change and silently negate it.
+        """
+        content = (
+            f"{self.model}|{paper.title}|{paper.abstract}|"
+            f"{json.dumps(filters, sort_keys=True)}|"
+            f"{','.join(sorted(inverted or set()))}"
+        )
         return hashlib.md5(content.encode()).hexdigest()
     
     def _load_from_cache(self, cache_key: str) -> Optional[Dict]:
@@ -151,6 +177,29 @@ Remember to respond with valid JSON only."""
         
         return prompt
     
+    def _build_schema(self, filters: Dict[str, str]) -> Dict:
+        """
+        JSON schema describing the expected answer, one entry per filter.
+
+        Passing this to Ollama as `format` makes the decoder emit exactly this
+        shape, which removes the whole class of "model wrote prose around the
+        JSON" failures the salvage logic in _parse_response exists to handle.
+        """
+        entry = {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string", "enum": ["YES", "NO"]},
+                "confidence": {"type": "number"},
+                "reason": {"type": "string"},
+            },
+            "required": ["answer", "confidence", "reason"],
+        }
+        return {
+            "type": "object",
+            "properties": {name: entry for name in filters},
+            "required": list(filters),
+        }
+
     def _parse_response(self, response_text: str) -> Dict:
         """
         Parse LLM response into structured format.
@@ -238,17 +287,24 @@ Remember to respond with valid JSON only."""
             raise ValueError(f"Could not parse JSON from response. First 500 chars: {response_text[:500]}")
     
     def check_paper(
-        self, 
-        paper: Paper, 
-        filters: Dict[str, str]
+        self,
+        paper: Paper,
+        filters: Dict[str, str],
+        inverted: Optional[Set[str]] = None
     ) -> Dict:
         """
         Check a paper against multiple filters in one API call.
-        
+
         Args:
             paper: Paper to analyze
             filters: Dict mapping filter names to filter questions
-        
+            inverted: Names of filters whose question is phrased positively
+                ("is this paper one we want?"), so YES means keep and the paper
+                is excluded on NO. Small models answer a negated question
+                ("does this study LACK fMRI?") with sound reasoning and the
+                opposite answer, so asking the positive form and flipping here
+                is markedly more accurate.
+
         Returns:
             Dict with structure:
             {
@@ -265,8 +321,10 @@ Remember to respond with valid JSON only."""
                 'manual_review': bool
             }
         """
+        inverted = inverted or set()
+
         # Check cache first
-        cache_key = self._get_cache_key(paper, filters)
+        cache_key = self._get_cache_key(paper, filters, inverted)
         cached = self._load_from_cache(cache_key)
         if cached is not None:
             return cached
@@ -280,26 +338,48 @@ Remember to respond with valid JSON only."""
                 # Call Ollama API using /api/generate (more compatible than /api/chat)
                 # Combine system and user prompts since /api/generate doesn't use messages
                 combined_prompt = f"{self.system_prompt}\n\n{user_prompt}"
-                
+
+                payload = {
+                    "model": self.model,
+                    "prompt": combined_prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": self.temperature,
+                    }
+                }
+                if self._schema_supported:
+                    payload["format"] = self._build_schema(filters)
+
                 response = requests.post(
                     f"{self.base_url}/api/generate",
-                    json={
-                        "model": self.model,
-                        "prompt": combined_prompt,
-                        "stream": False,
-                        "options": {
-                            "temperature": self.temperature,
-                        }
-                    },
+                    json=payload,
                     timeout=120  # 2 minutes timeout for HPC
                 )
-                
+
                 response.raise_for_status()
                 self.api_calls += 1
-                
+
                 # Parse response
                 response_data = response.json()
                 response_text = response_data['response']  # /api/generate uses 'response' not 'message'
+
+                # Some models yield an empty string when `format` is set. Drop
+                # the schema for the rest of the run and redo this call.
+                if self._schema_supported and not response_text.strip():
+                    logger.warning(
+                        f"Model '{self.model}' returned nothing with a JSON schema; "
+                        f"disabling structured output for the remainder of this run"
+                    )
+                    self._schema_supported = False
+                    payload.pop("format")
+                    response = requests.post(
+                        f"{self.base_url}/api/generate",
+                        json=payload,
+                        timeout=120
+                    )
+                    response.raise_for_status()
+                    response_text = response.json()['response']
+
                 parsed = self._parse_response(response_text)
                 
                 # Convert to our format
@@ -313,7 +393,11 @@ Remember to respond with valid JSON only."""
                 for filter_name in filters.keys():
                     if filter_name in parsed:
                         filter_result = parsed[filter_name]
-                        should_filter = filter_result.get('answer', 'NO').upper() == 'YES'
+                        answer_yes = filter_result.get('answer', 'NO').upper() == 'YES'
+                        # positively-phrased filter: YES means keep the paper
+                        should_filter = (
+                            not answer_yes if filter_name in inverted else answer_yes
+                        )
                         confidence = float(filter_result.get('confidence', 0.5))
                         reason = filter_result.get('reason', 'No reason provided')
                         

@@ -102,8 +102,14 @@ class AIAbstractFilter:
         """
         # Prepare filter questions
         filter_questions = {
-            name: config['prompt'] 
+            name: config['prompt']
             for name, config in filters_config.items()
+        }
+        # Filters whose prompt asks "is this paper one we want?" instead of
+        # "is this paper one we drop?"; the answer is flipped in the client.
+        inverted = {
+            name for name, config in filters_config.items()
+            if config.get('invert', False)
         }
         
         kept_papers = []
@@ -127,7 +133,7 @@ class AIAbstractFilter:
                 continue
             
             # Call LLM to check all filters
-            result = self.llm_client.check_paper(paper, filter_questions)
+            result = self.llm_client.check_paper(paper, filter_questions, inverted)
             
             self.papers_processed += 1
             

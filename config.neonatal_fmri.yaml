@@ -1,0 +1,108 @@
+# ============================================================================
+# Systematic study: WHICH BRAIN ATLAS is used in neonatal functional-MRI work
+# ============================================================================
+# Strategy: cast a WIDE net at search time (all neonatal fMRI papers, atlas NOT
+# required in the query - many studies use an atlas without saying "atlas" in
+# the abstract), then let the AI filter identify the on-target subset. This is
+# the recall-oriented approach a systematic review wants.
+#
+# Run it with:  python main.py --ai --config config.neonatal_fmri.yaml
+# ============================================================================
+
+search:
+  # Neonatal-SPECIFIC population (bare "Infant" dropped - it matches a huge
+  # pediatric/developmental literature) AND fMRI modality (bare "BOLD"/
+  # "connectome" dropped as too generic), NOT animals. Atlas usage is NOT
+  # required here - it's determined from full text downstream (the atlas is
+  # named in Methods, rarely in the abstract). With pubmed_field: tiab and
+  # Scopus TITLE-ABS-KEY this yields a clean neonatal-fMRI corpus.
+  query: |
+    (
+      Neonat* OR Newborn OR Newborns OR Preterm OR "Pre-term" OR Premature OR
+      Perinatal OR Fetal OR Foetal OR Neonate OR Neonates OR "premature infant" OR
+      "premature infants" OR "infant brain"
+    )
+    AND
+    (
+      fMRI OR "functional MRI" OR "functional magnetic resonance" OR
+      "resting-state fMRI" OR "resting state fMRI" OR "rs-fMRI" OR
+      "functional connectivity" OR "functional neuroimaging"
+    )
+    NOT
+    (
+      Rat OR Rats OR Mouse OR Mice OR Rodent OR Piglet OR Sheep OR "Animal model"
+    )
+  year_from: 2010
+  max_results_per_source: 999999   # comprehensive; Scopus still hard-caps at 5000
+  pubmed_field: tiab               # Title/Abstract only (else PubMed is ~15x noisier)
+  sources: [scopus, pubmed]        # arXiv has ~no clinical neonatal fMRI
+  output_dir: results
+
+# --- AI filter: designed for "neonatal fMRI studies that use an atlas" --------
+# Each prompt describes papers to EXCLUDE (answer YES -> drop). Threshold 0.6 is
+# deliberately conservative: for a systematic review, missing a relevant paper
+# (false exclusion) is worse than keeping a borderline one, and borderline
+# calls are flagged for manual review rather than dropped.
+ai_filter:
+  # Measured on a 48-paper hand-labelled sample from this corpus
+  # (scripts/benchmark_ollama_models.py). Overall agreement with those labels:
+  #
+  #   gpt-oss:20b   + positive prompts  0.971   <- in use
+  #   gemma3:12b    + positive prompts  0.935
+  #   gemma3:4b     + positive prompts  0.906   (fast alternative)
+  #   llama3.2:3b   + positive prompts  0.899
+  #   llama3.2:3b   + old negated ones  0.630   <- what this used to be
+  #
+  # gpt-oss:20b is a 21B mixture-of-experts model with ~3.6B parameters active
+  # per token, so it runs on a 6GB GPU by keeping most layers in system RAM
+  # (needs ~16GB free). It is the slowest option here; the whole corpus is an
+  # overnight job. Switch to gemma3:4b when iterating on the filter design.
+  model: gpt-oss:20b
+  ollama_url: http://localhost:11434
+  confidence_threshold: 0.6
+  temperature: 0.1
+  cache_responses: true
+  # gpt-oss returns an empty string when given a JSON schema, so it is asked in
+  # plain mode. Every other model tested should leave this on.
+  structured_output: false
+
+  # Each filter below is phrased POSITIVELY - "is this a paper we want?" - and
+  # marked invert: true, so a NO drops the paper. The earlier negated phrasing
+  # ("does this study LACK fMRI?") was answered with correct reasoning and the
+  # opposite answer often enough to break the no_fmri filter outright: it fired
+  # 115 times in 5295 papers when ~1700 were eligible, and scored 0.348 against
+  # hand labels. The same model on positive phrasing scores 0.913.
+  filters:
+    is_neonatal:
+      enabled: true
+      invert: true
+      prompt: >
+        Is the study population human neonates, newborns, preterm infants,
+        fetuses, or infants under about 2 years old?
+      description: "Keep only human neonates/infants"
+    has_fmri:
+      enabled: true
+      invert: true
+      prompt: >
+        Does this study report functional MRI data - that is, BOLD,
+        resting-state fMRI, or task-based fMRI?
+      description: "Keep only studies with fMRI/BOLD data"
+    # NOTE: intentionally NO atlas filter. Which atlas a study used is stated
+    # in the Methods/full text, not reliably in the abstract, so screening it
+    # out at the abstract stage would wrongly drop many relevant papers. We
+    # keep ALL empirical neonatal fMRI studies and extract the atlas from full
+    # text after download.
+    is_empirical:
+      enabled: true
+      invert: true
+      prompt: >
+        Does this paper report an original study with its own participants,
+        rather than being a review, meta-analysis, systematic review, study
+        protocol, editorial, or commentary?
+      description: "Keep only original empirical studies"
+
+download:
+  use_zotero: true
+  use_browser: true       # Cloudflare-protected publishers (Elsevier, Wiley...)
+  use_scihub: false
+  max_workers: 4

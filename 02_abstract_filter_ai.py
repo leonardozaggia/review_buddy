@@ -29,65 +29,32 @@ import requests
 from src.ai_abstract_filter import AIAbstractFilter
 from src.llm_client import OllamaClient
 from src.utils import load_papers_from_bib, save_papers_csv, save_papers_bib
+from src.settings import load_settings
 
 
 # ============================================================================
-# CONFIGURATION - CUSTOMIZE YOUR FILTERS HERE
+# CONFIGURATION
+# ============================================================================
+# All AI-filter settings live in config.yaml (see config.example.yaml) under
+# `ai_filter:` - model, Ollama URL, confidence threshold, and the natural-
+# language filter prompts. Edit that file, not this script.
 # ============================================================================
 
-# AI Model Configuration
+_AI = load_settings().ai_filter
+
 AI_CONFIG = {
-    'model': os.getenv('OLLAMA_MODEL', 'llama3.1:8b'),  # Ollama model to use (can override with env var)
-    'ollama_url': 'http://localhost:11434',  # Ollama server URL
-    'temperature': 0.1,                   # Low but non-zero to avoid repetition loops
-    'retry_attempts': 3,                  # Retry failed API calls
-    'cache_responses': True,              # Cache to avoid redundant calls
-    'confidence_threshold': 0.5,          # Min confidence to filter (0.0-1.0)
+    # OLLAMA_MODEL env var overrides the config value (handy on HPC/SLURM)
+    'model': os.getenv('OLLAMA_MODEL', _AI.get('model', 'gemma3:4b')),
+    'ollama_url': os.getenv('OLLAMA_URL', _AI.get('ollama_url', 'http://localhost:11434')),
+    'temperature': _AI.get('temperature', 0.1),
+    'retry_attempts': _AI.get('retry_attempts', 3),
+    'cache_responses': _AI.get('cache_responses', True),
+    'confidence_threshold': _AI.get('confidence_threshold', 0.5),
+    'structured_output': _AI.get('structured_output', True),
 }
 
-# Filter Definitions
-# Define each filter with a natural language prompt
-FILTERS_CONFIG = {
-    'epilepsy': {
-        'enabled': True,                  # Set to False to disable this filter
-        'prompt': "Does this paper focus primarily on epileptic spikes, seizure detection, or epileptiform activity?",
-        'description': "Papers about epilepsy-related spike detection"
-    },
-    
-    'bci': {
-        'enabled': True,
-        'prompt': "Is this paper about brain-computer interfaces (BCI) or brain-machine interfaces (BMI)?",
-        'description': "Papers about BCI/BMI systems"
-    },
-    
-    'non_human': {
-        'enabled': True,
-        'prompt': "Is this paper based on animal studies, in-vitro experiments, or computational models only (not human subjects)?",
-        'description': "Non-human or in-vitro studies"
-    },
-    
-    'non_empirical': {
-        'enabled': True,
-        'prompt': "Is this a review paper, survey, meta-analysis, or opinion piece without original empirical data collection?",
-        'description': "Reviews and non-empirical papers"
-    },
-    
-    # Add your own custom filters here - examples:
-    # 'fmri_only': {
-    #     'enabled': True,
-    #     'prompt': "Does this paper use ONLY fMRI methods without any EEG/MEG/iEEG data?",
-    #     'description': "Papers using only fMRI"
-    # },
-    # 'pediatric': {
-    #     'enabled': True,
-    #     'prompt': "Is this paper focused exclusively on pediatric populations (children/infants)?",
-    #     'description': "Pediatric-only studies"
-    # },
-}
-
-# ============================================================================
-# END CONFIGURATION
-# ============================================================================
+# {filter_name: {enabled, prompt, description}}
+FILTERS_CONFIG = _AI.get('filters', {})
 
 
 # Configure logging
@@ -162,7 +129,8 @@ def main():
             base_url=AI_CONFIG['ollama_url'],
             temperature=AI_CONFIG['temperature'],
             cache_dir=cache_dir,
-            retry_attempts=AI_CONFIG['retry_attempts']
+            retry_attempts=AI_CONFIG['retry_attempts'],
+            structured_output=AI_CONFIG['structured_output']
         )
     except Exception as e:
         logger.error(f"Failed to initialize Ollama client: {e}")
