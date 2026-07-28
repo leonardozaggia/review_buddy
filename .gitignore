@@ -3,9 +3,25 @@
 *.env
 !.env.example
 
+# Run configuration (personal query/filters/toggles) - keep out of history.
+# The tracked template is config.example.yaml.
+config.yaml
+
 # Results and outputs
-test*/
+# NB: scratch dirs only - do NOT use `test*/`, it also swallows the tests/ suite
+test/
+test_downloads/
+test_out/
+test_results/
+test_pdfs/
 results/*
+# Snapshots of previous runs (results.<tag>.<epoch>/, results1/ ...) - these are
+# regenerable and run to hundreds of MB.
+results.*/
+results[0-9]*/
+
+# Generated knowledge-graph output
+graphify-out/
 *.pdf
 *.bib
 *.ris
@@ -13,6 +29,7 @@ results/*
 
 # Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *$py.class
 *.so
@@ -53,3 +70,5 @@ Thumbs.db
 *.tmp
 temp/
 .browser_data*/
+.browser_profile*/
+.camoufox_profile*/
