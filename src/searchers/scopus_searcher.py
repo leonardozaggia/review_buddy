@@ -183,10 +183,21 @@ class ScopusSearcher:
             paper = Paper(title=title)
             paper.sources.add("Scopus")
             
-            # Authors
-            creator = entry.get("dc:creator")
-            if creator:
-                paper.authors.append(creator)
+            # Authors - the COMPLETE view returns a full `author` array; the
+            # `dc:creator` field only holds the first author. Prefer the array.
+            authors = entry.get("author")
+            if isinstance(authors, list) and authors:
+                for a in authors:
+                    given = a.get("given-name")
+                    surname = a.get("surname")
+                    if given and surname:
+                        paper.authors.append(f"{given} {surname}")
+                    elif a.get("authname"):
+                        paper.authors.append(a["authname"])
+            if not paper.authors:
+                creator = entry.get("dc:creator")
+                if creator:
+                    paper.authors.append(creator)
             
             # DOI
             paper.doi = entry.get("prism:doi")

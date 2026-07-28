@@ -4,10 +4,13 @@ Note: Google Scholar doesn't have an official API, so this uses web scraping.
 Be respectful with rate limits.
 """
 
+import json
 import logging
-from typing import List, Optional
-from datetime import datetime
+import sys
 import time
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional
 
 from ..models import Paper
 
@@ -18,17 +21,26 @@ logger = logging.getLogger(__name__)
 class ScholarSearcher:
     """Search for papers in Google Scholar"""
     
-    def __init__(self, max_results: int = 1000, timeout: int = 30):
+    def __init__(self, max_results: int = 1000, timeout: int = 30,
+                 overall_timeout: int = 60):
         """
         Initialize Google Scholar searcher.
-        
+
         Args:
             max_results: Maximum number of results to fetch
-            timeout: Request timeout in seconds
+            timeout: Per-request timeout in seconds
+            overall_timeout: Hard cap (seconds) on the whole Scholar search. The
+                `scholarly` library gives NO way to time out its blocking calls,
+                and Google Scholar frequently blocks automated queries by simply
+                hanging (or serving a CAPTCHA it silently retries). Without this
+                cap a single blocked Scholar request would stall the entire
+                fetch step forever. When hit, we return whatever was collected
+                so far and let the other sources proceed.
         """
         self.max_results = max_results
         self.timeout = timeout
-        
+        self.overall_timeout = overall_timeout
+
         # Lazy import scholarly to avoid dependency if not used
         try:
             from scholarly import scholarly
@@ -41,112 +53,106 @@ class ScholarSearcher:
     
     def search(self, query: str, year_from: Optional[int] = None, year_to: Optional[int] = None) -> List[Paper]:
         """
-        Search Google Scholar for papers matching the query.
-        
-        Args:
-            query: Search query
-            year_from: Start year filter
-            year_to: End year filter
-        
-        Returns:
-            List of Paper objects
+        Search Google Scholar with a hard overall timeout.
+
+        `scholarly` provides no timeout and blocks uninterruptibly (thread and
+        even multiprocessing timeouts fail to stop it on Windows - verified).
+        The reliable fix is to run it as a plain SUBPROCESS and enforce the
+        deadline with subprocess.run(timeout=...), whose kill uses a real
+        TerminateProcess. Returns whatever the subprocess produced (usually
+        empty when Google is blocking automated access).
         """
-        papers = []
-        
-        # Normalize query - remove newlines and extra whitespace
-        # This is crucial for queries read from .txt files
+        import subprocess
+        import tempfile
+        import os
+
         normalized_query = ' '.join(query.split())
-        
         logger.info(f"Searching Google Scholar with query: {normalized_query}")
         if year_from or year_to:
-            logger.info(f"Google Scholar: Year range filter: {year_from or 'any'} to {year_to or 'any'}")
-        
-        # Note: Google Scholar doesn't provide total result count upfront
-        # We'll just report progress as we fetch
-        
+            logger.info(f"Google Scholar: year range {year_from or 'any'} to {year_to or 'any'}")
+
+        script = Path(__file__).resolve().parent.parent.parent / "scripts" / "scholar_fetch.py"
+        fd, out_file = tempfile.mkstemp(suffix=".json", prefix="scholar_")
+        os.close(fd)
+        args = [sys.executable, str(script), out_file, str(self.max_results),
+                str(year_from) if year_from else "-",
+                str(year_to) if year_to else "-",
+                normalized_query]
+
+        raw = []
         try:
-            # Search with scholarly using built-in year_low and year_high parameters
-            search_results = self.scholarly.search_pubs(
-                normalized_query,
-                year_low=year_from,
-                year_high=year_to
+            # No stdout/stderr pipes: scholarly may spawn grandchildren that
+            # would keep a captured pipe open past the child's death and hang
+            # us. We read results from `out_file` instead.
+            subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=self.overall_timeout)
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                f"Google Scholar timed out after {self.overall_timeout}s - Google is "
+                f"almost certainly blocking automated access (CAPTCHA/rate limit). "
+                f"Skipping Scholar. Tip: remove 'scholar' from config.yaml sources, or use a proxy."
             )
-            
-            count = 0
-            filtered_out_count = 0
-            no_date_count = 0
-            
-            for result in search_results:
-                if count >= self.max_results:
-                    break
-                
-                try:
-                    paper = self._parse_result(result)
-                    if paper:
-                        # Validate year filtering (scholarly's year_low/year_high should handle this,
-                        # but we double-check as a safety measure)
-                        if year_from or year_to:
-                            if paper.publication_date:
-                                year = paper.publication_date.year
-                                if year_from and year < year_from:
-                                    logger.debug(f"Google Scholar: Filtered out (too old): {year} < {year_from} | {paper.title[:80]}")
-                                    filtered_out_count += 1
-                                    continue
-                                if year_to and year > year_to:
-                                    logger.debug(f"Google Scholar: Filtered out (too new): {year} > {year_to} | {paper.title[:80]}")
-                                    filtered_out_count += 1
-                                    continue
-                            else:
-                                logger.debug(f"Google Scholar: No date found, skipping: {paper.title[:80]}")
-                                no_date_count += 1
-                                continue
-                        
-                        papers.append(paper)
-                        count += 1
-                        
-                        if count % 10 == 0:
-                            logger.info(f"Google Scholar: Fetched {count} papers so far...")
-                    
-                    # Be nice to Google - add small delay
-                    time.sleep(0.5)
-                    
-                except Exception as e:
-                    logger.debug(f"Failed to parse Google Scholar result: {e}")
-                    continue
-            
         except Exception as e:
             logger.error(f"Google Scholar search failed: {e}")
-        
+        finally:
+            try:
+                with open(out_file, encoding="utf-8") as f:
+                    raw = json.loads(f.read() or "[]")
+            except (FileNotFoundError, ValueError):
+                raw = []
+            try:
+                os.remove(out_file)
+            except OSError:
+                pass
+
+        papers = [p for p in (self._paper_from_dict(d) for d in raw) if p]
         logger.info(f"Google Scholar: Successfully retrieved {len(papers)} papers")
-        if year_from or year_to:
-            logger.info(f"Google Scholar: Year filter applied - range: {year_from or 'any'} to {year_to or 'any'}")
-            if filtered_out_count > 0:
-                logger.info(f"Google Scholar: Filtered out {filtered_out_count} papers outside year range")
-            if no_date_count > 0:
-                logger.info(f"Google Scholar: Skipped {no_date_count} papers with no publication date")
         return papers
-    
+
+    def _paper_from_dict(self, d: dict) -> Optional[Paper]:
+        """Build a Paper from the JSON dict emitted by scripts/scholar_fetch.py."""
+        try:
+            title = d.get("title")
+            if not title:
+                return None
+            paper = Paper(title=title)
+            paper.sources.add("Google Scholar")
+            paper.authors = d.get("authors") or []
+            paper.abstract = d.get("abstract")
+            paper.journal = d.get("journal")
+            paper.url = d.get("url")
+            paper.doi = d.get("doi")
+            if d.get("year"):
+                try:
+                    paper.publication_date = datetime(int(d["year"]), 1, 1).date()
+                except (ValueError, TypeError):
+                    pass
+            if d.get("citations") is not None:
+                try:
+                    paper.citations = int(d["citations"])
+                except (ValueError, TypeError):
+                    pass
+            return paper
+        except Exception as e:
+            logger.debug(f"Failed to build Scholar paper: {e}")
+            return None
+
     def _parse_result(self, result: dict) -> Optional[Paper]:
         """
-        Parse a Google Scholar result into a Paper object.
-        
-        Args:
-            result: Result dictionary from scholarly
-        
-        Returns:
-            Paper object or None if parsing fails
+        Parse a raw scholarly result dict into a Paper (used by the subprocess
+        helper's fallback path and kept for compatibility).
         """
         try:
             # Get basic info - scholarly returns dict with 'bib' key
             bib = result.get('bib', {})
-            
+
             title = bib.get('title')
             if not title:
                 return None
-            
+
             paper = Paper(title=title)
             paper.sources.add("Google Scholar")
-            
+
             # Authors
             authors = bib.get('author', [])
             if isinstance(authors, list):
@@ -192,3 +198,4 @@ class ScholarSearcher:
         except Exception as e:
             logger.debug(f"Failed to parse Google Scholar result: {e}")
             return None
+

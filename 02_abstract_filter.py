@@ -20,75 +20,20 @@ from pathlib import Path
 
 from src.abstract_filter import AbstractFilter
 from src.utils import load_papers_from_bib, save_papers_csv, save_papers_bib
+from src.settings import load_settings
 
 
 # ============================================================================
-# CONFIGURATION - CUSTOMIZE YOUR FILTERS HERE
+# CONFIGURATION
+# ============================================================================
+# All filter settings live in config.yaml (see config.example.yaml) under
+# `filter:`. Edit that file - not this script - to enable/disable filters or
+# change keyword lists, so your customizations stay out of git history.
 # ============================================================================
 
-# Which filters to apply? Add key and set to True/False
-FILTERS_ENABLED = {
-    # --- BASIC FILTERS --- #
-    'no_abstract': True,       # Remove papers without abstracts
-    'non_english': True,       # Remove non-English papers
-    # --- CUSTOM FILTERS --- #
-    'epilepsy': True,          # Remove epileptic spike papers
-    'bci': True,               # Remove brain-computer interface papers
-    'non_human': True,         # Remove animal/in-vitro studies
-    'non_empirical': True,     # Remove review papers
-}
-
-# Define keyword-based filters
-# Add, remove, or modify filters as needed for your research area
-KEYWORD_FILTERS = {
-    # Filter for epilepsy-related papers
-    'epilepsy': [
-        'epileptic spike', 'epileptic spikes', 'interictal spike', 'ictal spike',
-        'spike detection', 'epileptiform', 'seizure spike', 'spike-wave',
-        'paroxysmal spike', 'sharp wave', 'spike discharge'
-    ],
-    
-    # Filter for brain-computer interface papers
-    'bci': [
-        'brain-computer interface', 'brain computer interface', 'bci',
-        'brain-machine interface', 'brain machine interface', 'bmi',
-        'neural interface', 'thought control', 'mind control',
-        'p300 speller', 'motor imagery bci', 'steady-state visual'
-    ],
-    
-    # Filter for non-human studies
-    'non_human': [
-        # Animals
-        'rat', 'rats', 'mouse', 'mice', 'murine', 'rodent', 'rodents',
-        'monkey', 'monkeys', 'primate', 'primates', 'macaque', 'macaques',
-        'pig', 'pigs', 'porcine', 'sheep', 'ovine', 'rabbit', 'rabbits',
-        'cat', 'cats', 'feline', 'dog', 'dogs', 'canine',
-        'zebrafish', 'drosophila', 'c. elegans', 'caenorhabditis',
-        # Non-human contexts
-        'in vitro', 'in-vitro', 'cell culture', 'cell line', 'cultured cells',
-        'animal model', 'animal study', 'animal experiment',
-        'non-human', 'non human', 'nonhuman'
-    ],
-    
-    # Filter for non-empirical papers (reviews, etc.)
-    'non_empirical': [
-        'systematic review', 'meta-analysis', 'meta analysis', 'literature review',
-        'scoping review', 'narrative review', 'review article', 'state of the art',
-        'state-of-the-art review', 'survey paper', 'comprehensive review'
-    ],
-    
-    # Add your own custom filters here - examples:
-    # 'non_fmri': [
-    #     'fMRI', 'functional magnetic resonance', 'BOLD signal',
-    # ],
-    # 'non_pediatric': [
-    #     'children', 'pediatric', 'infant', 'adolescent',
-    # ],
-}
-
-# ============================================================================
-# END CONFIGURATION
-# ============================================================================
+_FILTER = load_settings().filter
+FILTERS_ENABLED = _FILTER.get("enabled", {})   # {filter_name: bool}
+KEYWORD_FILTERS = _FILTER.get("keywords", {})  # {filter_name: [keywords]}
 
 
 # Configure logging

@@ -7,7 +7,7 @@ from typing import List, Dict, Optional, Set
 from datetime import datetime, date
 from pathlib import Path
 
-from .models import Paper
+from .models import Paper, normalize_title, normalize_doi
 from .config import Config
 from .searchers.scopus_searcher import ScopusSearcher
 from .searchers.pubmed_searcher import PubMedSearcher
@@ -32,7 +32,8 @@ class PaperSearcher:
             config: Configuration object (creates default if None)
         """
         self.config = config or Config()
-        self.papers: Dict[str, Paper] = {}  # Deduplicated papers by title
+        self.papers: Dict[str, Paper] = {}  # Deduplicated papers by normalized title
+        self._doi_index: Dict[str, str] = {}  # normalized DOI -> title key
     
     def search_all(
         self,
@@ -55,7 +56,8 @@ class PaperSearcher:
             Deduplicated list of Paper objects
         """
         self.papers = {}  # Reset
-        
+        self._doi_index = {}
+
         # Determine which sources to use
         if sources is None:
             sources = []
@@ -161,9 +163,10 @@ class PaperSearcher:
                 email=self.config.pubmed_email,
                 api_key=self.config.pubmed_api_key,
                 max_results=self.config.max_results_per_source,
-                timeout=self.config.timeout
+                timeout=self.config.timeout,
+                field=getattr(self.config, "pubmed_field", "tiab"),
             )
-            
+
             papers = searcher.search(query, year_from, year_to)
             self._add_papers(papers)
             
@@ -204,9 +207,10 @@ class PaperSearcher:
             
             searcher = ScholarSearcher(
                 max_results=self.config.max_results_per_source,
-                timeout=self.config.timeout
+                timeout=self.config.timeout,
+                overall_timeout=45,  # hard cap: Google Scholar hangs when blocked
             )
-            
+
             papers = searcher.search(query, year_from, year_to)
             self._add_papers(papers)
             
@@ -241,25 +245,30 @@ class PaperSearcher:
     def _add_papers(self, papers: List[Paper]):
         """
         Add papers to collection, deduplicating and merging data.
-        
-        Deduplication priority:
+
+        Duplicate detection:
+        1. Same DOI (normalized) - catches same paper with differing titles
+        2. Same normalized title (punctuation/case-insensitive) - catches e.g.
+           PubMed's trailing period vs Scopus's bare title
+
+        Merge priority:
         1. Prefer PubMed papers (higher download success rate)
         2. If neither or both are PubMed, prefer more recent publication
         3. Merge missing fields from other paper
-        
+
         Args:
             papers: List of papers to add
         """
         for paper in papers:
-            key = paper.title.lower().strip()
-            
-            if key in self.papers:
+            key = self._find_existing_key(paper)
+
+            if key is not None:
                 existing = self.papers[key]
                 new = paper
-                
+
                 # Determine which paper to keep as primary
                 should_replace = self._should_replace_paper(existing, new)
-                
+
                 if should_replace:
                     # Keep new paper as primary, merge existing data into it
                     new.merge_with(existing)
@@ -267,9 +276,32 @@ class PaperSearcher:
                 else:
                     # Keep existing paper as primary, merge new data into it
                     existing.merge_with(new)
+
+                # Surviving paper may have gained a DOI through the merge
+                self._register_doi(key, self.papers[key])
             else:
                 # Add new paper
+                key = normalize_title(paper.title)
                 self.papers[key] = paper
+                self._register_doi(key, paper)
+
+    def _find_existing_key(self, paper: Paper) -> Optional[str]:
+        """Find the key of an already-stored duplicate of this paper, if any."""
+        if paper.doi:
+            doi = normalize_doi(paper.doi)
+            if doi in self._doi_index:
+                return self._doi_index[doi]
+
+        key = normalize_title(paper.title)
+        if key in self.papers:
+            return key
+
+        return None
+
+    def _register_doi(self, key: str, paper: Paper):
+        """Register a paper's DOI in the DOI index."""
+        if paper.doi:
+            self._doi_index[normalize_doi(paper.doi)] = key
     
     def _should_replace_paper(self, existing: Paper, new: Paper) -> bool:
         """

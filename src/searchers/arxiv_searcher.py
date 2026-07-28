@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ArxivSearcher:
     """Search for papers in arXiv"""
     
-    BASE_URL = "http://export.arxiv.org/api/query"
+    BASE_URL = "https://export.arxiv.org/api/query"  # http now 301-redirects to https
     
     def __init__(self, max_results: int = 1000, timeout: int = 30):
         """
@@ -98,23 +98,37 @@ class ArxivSearcher:
                     'sortOrder': sort_order
                 }
                 
-                response = self.session.get(
-                    self.BASE_URL,
-                    params=params,
-                    timeout=self.timeout
-                )
-                response.raise_for_status()
-                
-                # Parse XML response
-                root = ET.fromstring(response.content)
-                
-                # Define namespace
                 ns = {'atom': 'http://www.w3.org/2005/Atom',
                       'arxiv': 'http://arxiv.org/schemas/atom'}
-                
-                entries = root.findall('atom:entry', ns)
-                
+
+                # arXiv rate-limits by returning an EMPTY <feed> (no entries and
+                # no error) when queried too fast. Retry the request a few times
+                # with backoff before concluding there are genuinely no results,
+                # so a throttle doesn't silently look like "0 papers found".
+                # arXiv rate-limits by returning an EMPTY <feed> (often with
+                # totalResults=0) when queried too fast, with no error. On the
+                # FIRST page, retry a few times with backoff before concluding
+                # there are genuinely no results, so a throttle doesn't silently
+                # look like "0 papers found". (Only the first page: an empty
+                # later page legitimately means we've reached the end.)
+                entries = []
+                for attempt in range(3):
+                    response = self.session.get(self.BASE_URL, params=params, timeout=self.timeout)
+                    response.raise_for_status()
+                    root = ET.fromstring(response.content)
+                    entries = root.findall('atom:entry', ns)
+                    if entries or start != 0 or attempt == 2:
+                        break
+                    wait = 3 * (attempt + 1)
+                    logger.warning(f"arXiv returned no results (possible rate limiting) - "
+                                   f"retrying in {wait}s ({attempt + 1}/2)")
+                    time.sleep(wait)
+
                 if not entries:
+                    if start == 0:
+                        logger.warning("arXiv returned 0 results after retries - either genuinely "
+                                       "none, or still rate-limited. arXiv has little clinical/"
+                                       "medical content; this is expected for such topics.")
                     break
                 
                 # Initialize progress bar on first batch

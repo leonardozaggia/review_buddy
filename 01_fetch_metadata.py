@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.paper_searcher import PaperSearcher
 from src.config import Config
+from src.settings import load_settings
 
 # Load environment variables
 load_dotenv()
@@ -32,13 +33,15 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
-# Configuration
-#QUERY = "machine learning AND healthcare"                      # <- Specify your query here
-QUERY = Path("query.txt").read_text(encoding="utf-8").strip()   # <- (Recomended!) Alternatively, parse a query from a .txt file
-YEAR_FROM = 2020
-MAX_RESULTS_PER_SOURCE = 10                                     # Use 999999 for unlimited search
-SOURCES = ['scopus', 'pubmed', 'arxiv', 'scholar']              # <- Specify sources to use: ['scopus', 'pubmed', 'arxiv', 'scholar', 'ieee']
-OUTPUT_DIR = Path("results")
+# Configuration - all options live in config.yaml (see config.example.yaml)
+_SETTINGS = load_settings()
+_SEARCH = _SETTINGS.search
+QUERY = _SETTINGS.resolve_query()                    # inline query, else query.txt
+YEAR_FROM = _SEARCH.get("year_from", 2020)
+YEAR_TO = _SEARCH.get("year_to")                     # None = up to current year
+MAX_RESULTS_PER_SOURCE = _SEARCH.get("max_results_per_source", 10)
+SOURCES = _SEARCH.get("sources", ['scopus', 'pubmed', 'arxiv', 'scholar'])
+OUTPUT_DIR = Path(_SEARCH.get("output_dir", "results"))
 
 def main():
     """Main execution function"""
@@ -51,7 +54,8 @@ def main():
     OUTPUT_DIR.mkdir(exist_ok=True)
     
     # Check configuration
-    config = Config(max_results_per_source=MAX_RESULTS_PER_SOURCE)
+    config = Config(max_results_per_source=MAX_RESULTS_PER_SOURCE,
+                    pubmed_field=_SEARCH.get("pubmed_field", "tiab"))
     
     available_sources = []
     if config.has_scopus_access():
@@ -90,7 +94,7 @@ def main():
     print("SEARCHING...")
     print("=" * 80)
     
-    papers = searcher.search_all(query=QUERY, year_from=YEAR_FROM, sources=SOURCES)
+    papers = searcher.search_all(query=QUERY, year_from=YEAR_FROM, year_to=YEAR_TO, sources=SOURCES)
     
     # Display results
     print()

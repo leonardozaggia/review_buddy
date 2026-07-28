@@ -351,6 +351,10 @@ def deduplicate_csv(filepath: Path, output_path: Path = None) -> Dict:
     # Load CSV
     print(f"\n📖 Reading CSV file...")
     df = pd.read_csv(filepath)
+    # Reset to a clean 0..n RangeIndex so iterrows() labels match iloc positions.
+    # Without this, a pre-filtered/reindexed CSV makes df.iloc[label] read the
+    # wrong row during duplicate comparison.
+    df = df.reset_index(drop=True)
     print(f"   Found {len(df)} rows")
     
     # Check for required columns

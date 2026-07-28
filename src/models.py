@@ -3,9 +3,28 @@ Simple data models for papers, authors, and publications.
 No complexity - just what we need to store and export data.
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Set
 from datetime import date
+
+
+def normalize_title(title: str) -> str:
+    """
+    Normalize a title for deduplication: lowercase, strip punctuation,
+    collapse whitespace. Sources differ in punctuation (e.g. PubMed titles
+    end with a period), so exact comparison misses obvious duplicates.
+    """
+    return re.sub(r'[^a-z0-9]+', ' ', title.lower()).strip()
+
+
+def normalize_doi(doi: str) -> str:
+    """Normalize a DOI for comparison: lowercase, strip URL prefix and whitespace."""
+    doi = doi.strip().lower()
+    for prefix in ('https://doi.org/', 'http://doi.org/', 'https://dx.doi.org/', 'http://dx.doi.org/', 'doi:'):
+        if doi.startswith(prefix):
+            doi = doi[len(prefix):]
+    return doi
 
 
 @dataclass
@@ -41,22 +60,32 @@ class Paper:
     keywords: Set[str] = field(default_factory=set)
     citations: Optional[int] = None
     sources: Set[str] = field(default_factory=set)  # Which databases found this paper
-    
+    cite_key: Optional[str] = None  # Preserved BibTeX cite key (when loaded from a .bib file)
+
+    def normalized_title(self) -> str:
+        return normalize_title(self.title)
+
     def __hash__(self):
-        """Hash based on title for deduplication"""
-        return hash(self.title.lower().strip())
-    
+        """Hash based on normalized title for deduplication.
+
+        Note: __eq__ also considers DOIs, so two papers with the same DOI but
+        different titles compare equal while hashing differently. Dedup logic
+        should use explicit DOI/title indexes (see PaperSearcher._add_papers)
+        rather than relying on hash-based containers.
+        """
+        return hash(normalize_title(self.title))
+
     def __eq__(self, other):
-        """Papers are equal if they have the same title or same DOI"""
+        """Papers are equal if they have the same DOI or same normalized title"""
         if not isinstance(other, Paper):
             return False
-        
+
         # If both have DOI, use that
         if self.doi and other.doi:
-            return self.doi.lower() == other.doi.lower()
-        
-        # Otherwise use title
-        return self.title.lower().strip() == other.title.lower().strip()
+            return normalize_doi(self.doi) == normalize_doi(other.doi)
+
+        # Otherwise use normalized title
+        return normalize_title(self.title) == normalize_title(other.title)
     
     def to_bibtex_entry(self, cite_key: Optional[str] = None) -> str:
         """

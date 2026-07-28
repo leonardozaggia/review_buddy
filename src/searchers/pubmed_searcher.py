@@ -22,23 +22,31 @@ class PubMedSearcher:
     SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
     
-    def __init__(self, email: str, api_key: Optional[str] = None, max_results: int = 1000, timeout: int = 30):
+    def __init__(self, email: str, api_key: Optional[str] = None, max_results: int = 1000,
+                 timeout: int = 30, field: Optional[str] = "tiab"):
         """
         Initialize PubMed searcher.
-        
+
         Args:
             email: Your email (required by NCBI)
             api_key: PubMed API key (optional, increases rate limits)
             max_results: Maximum number of results to fetch
             timeout: Request timeout in seconds
+            field: NCBI esearch `field` to restrict the whole query to. Defaults
+                to "tiab" (Title/Abstract) - the sensible default for a literature
+                search. Without it, PubMed matches ALL fields (references,
+                affiliations, MeSH, ...), which is enormously noisy: e.g. a
+                neonatal-fMRI query returns ~13,900 all-field vs ~800 with tiab.
+                Set to None/"" for the old all-field behaviour.
         """
         if not email:
             raise ValueError("Email is required for PubMed API (NCBI policy)")
-        
+
         self.email = email
         self.api_key = api_key
         self.max_results = max_results
         self.timeout = timeout
+        self.field = field or None
         self.session = requests.Session()
         
         # Rate limiting: 3 requests/sec without key, 10 with key
@@ -114,7 +122,10 @@ class PubMedSearcher:
                 "retmode": "json",
                 "email": self.email,
             }
-            
+
+            if self.field:
+                params["field"] = self.field  # restrict whole query (e.g. tiab)
+
             if self.api_key:
                 params["api_key"] = self.api_key
             
@@ -223,10 +234,24 @@ class PubMedSearcher:
                             name = f"{fore_name.text} {name}"
                         paper.authors.append(name.strip())
             
-            # Abstract
-            abstract_elem = article_elem.find(".//Abstract/AbstractText")
-            if abstract_elem is not None and abstract_elem.text:
-                paper.abstract = abstract_elem.text.strip()
+            # Abstract - structured abstracts have multiple AbstractText sections
+            # (Background/Methods/Results/Conclusions), each possibly with a Label.
+            # Concatenate them all, and use itertext() so inline markup
+            # (<i>, <sup>, ...) doesn't truncate the section text.
+            abstract_nodes = article_elem.findall(".//Abstract/AbstractText")
+            if abstract_nodes:
+                sections = []
+                for node in abstract_nodes:
+                    text = "".join(node.itertext()).strip()
+                    if not text:
+                        continue
+                    label = node.get("Label")
+                    if label:
+                        sections.append(f"{label}: {text}")
+                    else:
+                        sections.append(text)
+                if sections:
+                    paper.abstract = " ".join(sections)
             
             # Journal
             journal_elem = article_elem.find(".//Journal")

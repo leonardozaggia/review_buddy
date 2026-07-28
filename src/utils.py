@@ -16,91 +16,67 @@ logger = logging.getLogger(__name__)
 
 def load_papers_from_bib(bib_file: Path) -> List[Paper]:
     """
-    Load papers from BibTeX file.
-    
+    Load papers from a BibTeX file using the `bibtexparser` library.
+
+    Preserves every field the Paper model supports (including volume, issue,
+    pages, publisher, issn) and keeps the original cite key, so metadata is not
+    silently dropped when passing bibliographies between pipeline steps.
+
     Args:
         bib_file: Path to BibTeX file
-    
+
     Returns:
         List of Paper objects
     """
-    papers = []
-    
+    import bibtexparser
+
+    papers: List[Paper] = []
+
     try:
         with open(bib_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # Split into entries
-        entries = content.split('@')[1:]  # Skip before first @
-        
-        for entry in entries:
+            bib_db = bibtexparser.load(f)
+
+        for entry in bib_db.entries:
             try:
-                # Extract fields
-                lines = entry.strip().split('\n')
-                
-                # Parse entry
-                title = None
-                authors = []
-                abstract = None
-                doi = None
-                pmid = None
-                arxiv_id = None
-                year = None
-                journal = None
-                url = None
-                
-                for line in lines:
-                    line = line.strip().rstrip(',')
-                    
-                    if '=' in line:
-                        field, value = line.split('=', 1)
-                        field = field.strip().lower()
-                        value = value.strip().strip('{}').strip()
-                        
-                        if field == 'title':
-                            title = value
-                        elif field == 'author':
-                            authors = [a.strip() for a in value.split(' and ')]
-                        elif field == 'abstract':
-                            abstract = value
-                        elif field == 'doi':
-                            doi = value
-                        elif field == 'pmid':
-                            pmid = value
-                        elif field == 'arxiv_id':
-                            arxiv_id = value
-                        elif field == 'year':
-                            try:
-                                year = int(value)
-                            except:
-                                pass
-                        elif field == 'journal':
-                            journal = value
-                        elif field == 'url':
-                            url = value
-                
-                if title:
-                    paper = Paper(title=title)
-                    paper.authors = authors
-                    paper.abstract = abstract
-                    paper.doi = doi
-                    paper.pmid = pmid
-                    paper.arxiv_id = arxiv_id
-                    paper.journal = journal
-                    paper.url = url
-                    
-                    if year:
-                        paper.publication_date = date(year, 1, 1)
-                    
-                    papers.append(paper)
-                    
+                title = entry.get('title')
+                if not title:
+                    continue
+
+                paper = Paper(title=title.strip())
+                paper.cite_key = entry.get('ID')
+
+                author_field = entry.get('author', '')
+                if author_field:
+                    paper.authors = [a.strip() for a in author_field.split(' and ') if a.strip()]
+
+                paper.abstract = entry.get('abstract')
+                paper.doi = entry.get('doi')
+                paper.pmid = entry.get('pmid')
+                paper.arxiv_id = entry.get('arxiv_id')
+                paper.journal = entry.get('journal')
+                paper.volume = entry.get('volume')
+                paper.issue = entry.get('number') or entry.get('issue')
+                paper.pages = entry.get('pages')
+                paper.publisher = entry.get('publisher')
+                paper.issn = entry.get('issn')
+                paper.url = entry.get('url')
+
+                year_str = entry.get('year')
+                if year_str:
+                    try:
+                        paper.publication_date = date(int(year_str), 1, 1)
+                    except (ValueError, TypeError):
+                        pass
+
+                papers.append(paper)
+
             except Exception as e:
-                logger.debug(f"Failed to parse entry: {e}")
+                logger.debug(f"Failed to parse entry {entry.get('ID', '?')}: {e}")
                 continue
-        
+
         logger.info(f"Loaded {len(papers)} papers from {bib_file}")
         return papers
-        
+
     except Exception as e:
         logger.error(f"Failed to load papers from {bib_file}: {e}")
         return []
@@ -154,15 +130,25 @@ def save_papers_bib(papers: List[Paper], output_file: Path):
     """
     try:
         entries = []
+        used_keys = set()
         for i, paper in enumerate(papers, 1):
-            entry = paper.to_bibtex_entry(f"paper_{i}")
-            entries.append(entry)
-        
+            # Preserve the original cite key when available so keys stay stable
+            # across pipeline steps; fall back to a positional key.
+            cite_key = paper.cite_key or f"paper_{i}"
+            # Ensure uniqueness (duplicate keys break downstream BibTeX tools)
+            base_key = cite_key
+            counter = 1
+            while cite_key in used_keys:
+                cite_key = f"{base_key}_{counter}"
+                counter += 1
+            used_keys.add(cite_key)
+            entries.append(paper.to_bibtex_entry(cite_key))
+
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write('\n\n'.join(entries))
-        
+
         logger.info(f"Saved {len(papers)} papers to {output_file}")
-        
+
     except Exception as e:
         logger.error(f"Failed to save BibTeX: {e}")
 
