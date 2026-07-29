@@ -111,6 +111,10 @@ ai_filter:
       description: "Keep only original empirical studies"
 
 download:
+  # Point explicitly at the AI-filtered set. Without this the script auto-picks
+  # results/references_filtered.bib, which is the KEYWORD-filtered output from
+  # an earlier run - a different and much larger set of papers.
+  bib_file: results/references_filtered_ai.bib
   use_zotero: true
   use_browser: true       # Cloudflare-protected publishers (Elsevier, Wiley...)
   use_scihub: false
