@@ -231,6 +231,9 @@ def main() -> int:
                     help="bib to map PDFs->titles (default: references_filtered_ai.bib "
                          "then references_filtered.bib)")
     ap.add_argument("--out", default="results/atlas_usage.csv")
+    ap.add_argument("--all-pdfs", action="store_true",
+                    help="scan every PDF in --pdf-dir, including ones absent "
+                         "from the bib (default: bib members only)")
     args = ap.parse_args()
 
     pdf_dir = (ROOT / args.pdf_dir) if not Path(args.pdf_dir).is_absolute() else Path(args.pdf_dir)
@@ -246,6 +249,21 @@ def main() -> int:
                 pdf_dir.parent / "references_filtered.bib"]
         bib = next((c for c in cand if c.exists()), None)
     index = build_pdf_index(bib) if bib else {}
+
+    # results/pdfs accumulates across runs, so it holds PDFs from screening
+    # passes that are no longer part of the corpus. Counting those would put
+    # papers the filter has since excluded back into the atlas totals, so by
+    # default only PDFs named in the bib are scanned.
+    if index and not args.all_pdfs:
+        in_bib = [p for p in pdfs if p.stem in index]
+        skipped = len(pdfs) - len(in_bib)
+        if skipped:
+            print(f"Skipping {skipped} PDFs not in {bib.name} "
+                  f"(left over from an earlier run; --all-pdfs to include them)")
+        pdfs = in_bib
+        if not pdfs:
+            print("No PDFs matched the bib - is this the bib the downloader used?")
+            return 1
 
     print(f"Scanning {len(pdfs)} PDFs in {pdf_dir}"
           + (f" (titles from {bib.name})" if bib else " (no bib mapping)"))
