@@ -302,7 +302,12 @@ def main() -> int:
     ap.add_argument("--usage-csv", default="results/atlas_usage.csv",
                     help="regex pass output, used for --only and agreement")
     ap.add_argument("--out", default="results/atlas_labels_llm.csv")
-    ap.add_argument("--model", default="llama3.2:3b")
+    # gemma3:4b replaces llama3.2:3b as the default: same size class and speed,
+    # but it was the weaker of the two by a wide margin on this repo's abstract
+    # benchmark (0.906 vs 0.630, scripts/benchmark_ollama_models.py). That was
+    # measured on classification rather than extraction, so treat it as a better
+    # starting point, not a validated choice for this task.
+    ap.add_argument("--model", default="gemma3:4b")
     ap.add_argument("--ollama-url", default="http://localhost:11434")
     ap.add_argument("--cache-dir", default="results/atlas_llm_cache")
     ap.add_argument("--limit", type=int, default=0, help="only first N PDFs (sampling)")
