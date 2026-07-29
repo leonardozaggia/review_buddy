@@ -1,0 +1,437 @@
+{
+  "_doc": "Hand-assigned gold labels for scripts/benchmark_ollama_models.py. YES = the filter should fire and the paper is excluded. null = genuinely ambiguous from the abstract alone; excluded from scoring for that filter. Papers are identified by DOI/title rather than shipped with their abstracts, so no publisher text is redistributed - rebuild the sample against your own .bib with --rebuild-sample.",
+  "labels": {
+    "1": {
+      "title": "Early spectral EEG in preterm infants correlates with neurocognitive outcomes in late childhood",
+      "doi": "10.1038/s41390-021-01915-7",
+      "year": "2022",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "preterm infants, EEG only, cohort"
+    },
+    "2": {
+      "title": "Mapping Early Brain-Body Interactions: Associations of Fetal Heart Rate Variation with Newborn Brainstem, Hypothalamic, and Dorsal Anterior Cingulate Cortex Functional Connectivity.",
+      "doi": "10.1523/JNEUROSCI.2363-23.2024",
+      "year": "2024",
+      "not_neonatal": "NO",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "newborn fMRI at 40-46wk PMA"
+    },
+    "3": {
+      "title": "Structural and functional brain asymmetries in the early phases of life: a scoping review",
+      "doi": "10.1007/s00429-021-02256-1",
+      "year": "2022",
+      "not_neonatal": "NO",
+      "no_fmri": null,
+      "non_empirical": "YES",
+      "note": "scoping review of neonates; review-of-fMRI ambiguity"
+    },
+    "4": {
+      "title": "Early brain cognitive development in late preterm infants: an event-related potential and resting EEG study.",
+      "doi": "10.1186/s13052-023-01567-9",
+      "year": "2024",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "late preterm, ERP + resting EEG"
+    },
+    "5": {
+      "title": "Concurrent and prospective associations between infant frontoparietal and default mode network connectivity and negative affectivity",
+      "doi": "10.1016/j.biopsycho.2023.108717",
+      "year": "2023",
+      "not_neonatal": "NO",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "72 infants rs-fMRI"
+    },
+    "6": {
+      "title": "Gestational Age in Autistic Children and Adolescents: Prevalence and Effects on Autism Phenotype",
+      "doi": "10.1007/s10803-022-05466-6",
+      "year": "2023",
+      "not_neonatal": "YES",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "autistic children/adolescents 3-24y, questionnaires"
+    },
+    "7": {
+      "title": "Toward a more informative representation of the fetal-neonatal brain connectome using variational autoencoder.",
+      "doi": "10.7554/eLife.80878",
+      "year": "2023",
+      "not_neonatal": "NO",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "fetal/neonatal rs-fMRI, >500 subjects, VAE model"
+    },
+    "8": {
+      "title": "The Babytwins Study Sweden (BATSS): A Multi-Method Infant Twin Study of Genetic and Environmental Factors Influencing Infant Brain and Behavioral Development",
+      "doi": "10.1017/thg.2021.34",
+      "year": "2021",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": null,
+      "note": "infant twin cohort, EEG/eye-tracking; cohort-profile vs protocol ambiguous"
+    },
+    "9": {
+      "title": "Evaluation of deep gray matter for early brain development using quantitative susceptibility mapping",
+      "doi": "10.1007/s00330-022-09267-4",
+      "year": "2023",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "QSM structural, PMA<=1000d"
+    },
+    "10": {
+      "title": "Structural connectivity at term equivalent age and language in preterm children at 2 years corrected",
+      "doi": "10.1093/braincomms/fcae126",
+      "year": "2024",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "preterm at TEA, diffusion only"
+    },
+    "11": {
+      "title": "Functional Connectivity of Nucleus Accumbens Is Associated with Lifelong Premature Ejaculation in Male Adults : A Resting-state fMRI Study.",
+      "doi": "10.1007/s00062-021-01105-2",
+      "year": "2022",
+      "not_neonatal": "YES",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "adult males, rs-fMRI"
+    },
+    "12": {
+      "title": "Neuronal Coupling Modes Show Differential Development in the Early Cortical Activity Networks of Human Newborns.",
+      "doi": "10.1523/JNEUROSCI.1012-23.2024",
+      "year": "2024",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "newborns, high-density EEG"
+    },
+    "13": {
+      "title": "Right Structural and Functional Reorganization in Four-Year-Old Children with Perinatal Arterial Ischemic Stroke Predict Language Production.",
+      "doi": "10.1523/ENEURO.0447-18.2019",
+      "year": "2019",
+      "not_neonatal": "YES",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "four-year-old children, fMRI + rs-fMRI"
+    },
+    "14": {
+      "title": "The impact of socio-environmental factors on brain structure over the early life course of preterm-born individuals - A systematic review",
+      "doi": "10.1016/j.neubiorev.2025.106061",
+      "year": "2025",
+      "not_neonatal": "NO",
+      "no_fmri": null,
+      "non_empirical": "YES",
+      "note": "systematic review, preterm birth to adulthood"
+    },
+    "15": {
+      "title": "Electrophysiological Evidence for Interhemispheric Connectivity and Communication in Young Human Infants",
+      "doi": "10.3390/brainsci13040647",
+      "year": "2023",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "12 four-month-olds, EEG/ERP"
+    },
+    "16": {
+      "title": "Dynamic effects of habituation and novelty detection on newborn event-related potentials",
+      "doi": "10.1016/j.bandl.2019.104695",
+      "year": "2019",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "16 term newborns, ERP"
+    },
+    "17": {
+      "title": "Corticospinal tract integrity and motor function following neonatal stroke: a case study.",
+      "doi": "10.1186/1471-2377-12-53",
+      "year": "2012",
+      "not_neonatal": "YES",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "case study of an 11-year-old, fMRI used"
+    },
+    "18": {
+      "title": "Prevalence and Comorbidities of Attention Deficit Hyperactivity Disorder Among Adults and Children/Adolescents in Korea",
+      "doi": "10.9758/CPN.2022.20.1.126",
+      "year": "2022",
+      "not_neonatal": "YES",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "adults+children ADHD registry, no imaging"
+    },
+    "19": {
+      "title": "Cooling and physiology during parent cuddling infants with neonatal encephalopathy in usual care: CoolCuddle-2 study",
+      "doi": "10.1111/apa.17466",
+      "year": "2025",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "neonates, aEEG/vitals"
+    },
+    "20": {
+      "title": "Cerebellar Hemorrhage",
+      "doi": "10.1016/B978-0-323-42876-7.00023-5",
+      "year": "2018",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "YES",
+      "note": "book chapter review on cerebellar hemorrhage in newborns"
+    },
+    "21": {
+      "title": "Transcutaneous Electrical Vagus Nerve Stimulation to Suppress Ventricular Premature Complexes (TREAT-PVC): A Randomized Clinical Trial",
+      "doi": "10.1016/j.jacep.2026.01.011",
+      "year": "2026",
+      "not_neonatal": "YES",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "adult cardiology RCT"
+    },
+    "22": {
+      "title": "Normalization of similarity-based individual brain networks from gray matter MRI and its association with neurodevelopment in infants with intrauterine growth restriction",
+      "doi": "10.1016/j.neuroimage.2013.07.045",
+      "year": "2013",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "one-year-old infants, T1 morphometric networks, explicitly no fMRI"
+    },
+    "23": {
+      "title": "Effects of perinatal asphyxia on cortical activity in two-year-old children",
+      "doi": "10.1016/j.nicl.2025.103933",
+      "year": "2026",
+      "not_neonatal": null,
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "two-year-olds sit on the ~2y boundary; EEG"
+    },
+    "24": {
+      "title": "Early-life growth and emotional, behavior and cognitive outcomes in childhood and adolescence in the EU child cohort network: individual participant data meta-analysis of over 109,000 individuals",
+      "doi": "10.1016/j.lanepe.2025.101247",
+      "year": "2025",
+      "not_neonatal": "YES",
+      "no_fmri": "YES",
+      "non_empirical": "YES",
+      "note": "IPD meta-analysis, children/adolescents"
+    },
+    "25": {
+      "title": "Computerized cognitive training in children and adolescents with attention deficit/hyperactivity disorder as add-on treatment to stimulants: Feasibility study and protocol description",
+      "doi": "10.1590/2237-6089-2016-0039",
+      "year": "2017",
+      "not_neonatal": "YES",
+      "no_fmri": "YES",
+      "non_empirical": "YES",
+      "note": "ADHD children 10-12, feasibility + protocol description"
+    },
+    "26": {
+      "title": "Developmental kinesiology: Three levels of motor control in the assessment and treatment of the motor system",
+      "doi": "10.1016/j.jbmt.2013.04.002",
+      "year": "2014",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "YES",
+      "note": "conceptual review covering neonatal stage"
+    },
+    "27": {
+      "title": "Advanced MRI imaging techniques in pediatric brain tumors",
+      "doi": "10.1007/s00247-024-05966-w",
+      "year": "2024",
+      "not_neonatal": "YES",
+      "no_fmri": "YES",
+      "non_empirical": "YES",
+      "note": "review of MRI techniques in pediatric brain tumors"
+    },
+    "28": {
+      "title": "Overlapping neural circuitry for narrative comprehension and proficient reading in children and adolescents.",
+      "doi": "10.1016/j.neuropsychologia.2013.09.002",
+      "year": "2013",
+      "not_neonatal": "YES",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "children 5-11, fMRI"
+    },
+    "29": {
+      "title": "Enhancing daily life for children with cognitive developmental delay through insights into brain development",
+      "doi": "10.1038/s41390-024-03616-3",
+      "year": "2024",
+      "not_neonatal": null,
+      "no_fmri": "YES",
+      "non_empirical": "YES",
+      "note": "review; population 'children with delay' spans ages"
+    },
+    "30": {
+      "title": "Brain intrinsic connection patterns underlying tool processing in human adults are present in neonates and not in macaques.",
+      "doi": "10.1016/j.neuroimage.2022.119339",
+      "year": "2022",
+      "not_neonatal": "NO",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "includes human neonates, rsFC"
+    },
+    "31": {
+      "title": "Correlation of clinical pain scores with cerebral oxygenation in preterm neonates during acute painful procedures: a prospective observational study",
+      "doi": "10.1038/s41372-022-01543-x",
+      "year": "2023",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "preterm neonates, NIRS"
+    },
+    "32": {
+      "title": "Diffusion Tensor Imaging in Very Preterm, Moderate-Late Preterm and Term-Born Neonates: A Systematic Review",
+      "doi": "10.1016/j.jpeds.2021.01.008",
+      "year": "2021",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "YES",
+      "note": "systematic review of DTI in neonates"
+    },
+    "33": {
+      "title": "Somatotopic Mapping of the Developing Sensorimotor Cortex in the Preterm Human Brain.",
+      "doi": "10.1093/cercor/bhy050",
+      "year": "2018",
+      "not_neonatal": "NO",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "35 preterm infants, task fMRI"
+    },
+    "34": {
+      "title": "Fetal behavior during MRI changes with age and relates to network dynamics.",
+      "doi": "10.1002/hbm.26167",
+      "year": "2023",
+      "not_neonatal": "NO",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "120 fetuses, fMRI"
+    },
+    "35": {
+      "title": "Functional Impact Score of Mitochondrial Variants and Its Relationship With Functional Connectivity of the Brain: Potential Origins of Premature Aging in Young Adulthood.",
+      "doi": "10.1002/hbm.70447",
+      "year": "2026",
+      "not_neonatal": "YES",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "young adults, functional connectivity"
+    },
+    "36": {
+      "title": "Assessment of immunological indicators in children with behavioral disorders due",
+      "doi": "10.15574/SP.2023.132.67",
+      "year": "2023",
+      "not_neonatal": "YES",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "boys 7-15, immunology, no fMRI"
+    },
+    "37": {
+      "title": "Augmented reality (AR) in microsurgical multimodal image guided focal pediatric epilepsy surgery: Results of a retrospective feasibility study",
+      "doi": "10.1016/j.bas.2024.104180",
+      "year": "2025",
+      "not_neonatal": "YES",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "pediatric epilepsy surgery mean age 9, fMRI in multimodal navigation"
+    },
+    "38": {
+      "title": "New Directions in Child Psychiatry: Shaping Neurodevelopmental Trajectories.",
+      "doi": "",
+      "year": "2023",
+      "not_neonatal": null,
+      "no_fmri": "YES",
+      "non_empirical": "YES",
+      "note": "editorial/commentary, no defined population"
+    },
+    "39": {
+      "title": "A graph convolutional neural network for the automated detection of seizures in the neonatal EEG.",
+      "doi": "10.1016/j.cmpb.2022.106950",
+      "year": "2022",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "neonatal EEG, GCNN methods paper with participant data"
+    },
+    "40": {
+      "title": "Longitudinal analysis of neural network development in preterm infants.",
+      "doi": "10.1093/cercor/bhq035",
+      "year": "2010",
+      "not_neonatal": "NO",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "preterm infants, fcMRI"
+    },
+    "41": {
+      "title": "HSleepNet: A hybrid adaptive brain network architecture for neonatal sleep staging",
+      "doi": "10.1016/j.bspc.2026.111027",
+      "year": "2026",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "neonatal EEG sleep staging, private dataset"
+    },
+    "42": {
+      "title": "Investigation of risk factors and dismorphology in patients with autism spectrum disorders",
+      "doi": "10.4274/jcp.2020.0020",
+      "year": "2020",
+      "not_neonatal": "YES",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "ASD children 5-17, no imaging"
+    },
+    "43": {
+      "title": "Age-related increases in long-range connectivity in fetal functional neural connectivity networks in utero.",
+      "doi": "10.1016/j.dcn.2014.09.001",
+      "year": "2015",
+      "not_neonatal": "NO",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "39 fetuses, rs-fMRI"
+    },
+    "44": {
+      "title": "Motor beta cortical oscillations are related with the gait kinematics of youth with cerebral palsy",
+      "doi": "10.1002/acn3.51246",
+      "year": "2020",
+      "not_neonatal": "YES",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "youth with CP ~15y, MEG"
+    },
+    "45": {
+      "title": "In vivo human fetal brain analysis using MR imaging",
+      "doi": "10.1007/978-3-319-22023-9_20",
+      "year": "2016",
+      "not_neonatal": "NO",
+      "no_fmri": "YES",
+      "non_empirical": "YES",
+      "note": "fetal MR imaging review chapter"
+    },
+    "46": {
+      "title": "Neural compensation in adulthood following very preterm birth demonstrated during a visual paired associates learning task.",
+      "doi": "10.1016/j.nicl.2014.08.009",
+      "year": "2014",
+      "not_neonatal": "YES",
+      "no_fmri": "NO",
+      "non_empirical": "NO",
+      "note": "young adults born very preterm, fMRI"
+    },
+    "47": {
+      "title": "Long-term attention deficits combined with subcortical and cortical structural central nervous system alterations in young adults born small for gestational age",
+      "doi": "10.1016/j.earlhumdev.2017.04.016",
+      "year": "2017",
+      "not_neonatal": "YES",
+      "no_fmri": "YES",
+      "non_empirical": "NO",
+      "note": "adults age 20, structural MRI only"
+    },
+    "48": {
+      "title": "Identifying and characterising cerebral visual impairment in children: A review",
+      "doi": "10.1111/cxo.12155",
+      "year": "2014",
+      "not_neonatal": "YES",
+      "no_fmri": "YES",
+      "non_empirical": "YES",
+      "note": "review of CVI in children"
+    }
+  }
+}

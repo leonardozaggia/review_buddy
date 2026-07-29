@@ -13,13 +13,22 @@ Two prompt modes are compared:
   plain   - exactly what src/llm_client.py sends today (free-form JSON request)
   schema  - same prompt, but with Ollama's structured-output JSON schema
 
+The 48 gold labels live in scripts/benchmark_data/gold_labels.json. They carry
+titles and DOIs but not abstracts, so no publisher text is redistributed - build
+the sample locally from your own .bib first:
+
+  python scripts/benchmark_ollama_models.py --rebuild-sample results/references.bib \
+      --gold scripts/benchmark_data/gold_labels.json --sample sample.json
+
 Usage:
   python scripts/benchmark_ollama_models.py --models llama3.2:3b qwen3:4b \
-      --sample sample_pool.json --gold gold_labels.json --out bench.json
+      --sample sample.json --gold scripts/benchmark_data/gold_labels.json \
+      --out bench.json
 """
 
 import argparse
 import json
+import re
 import statistics
 import sys
 import time
@@ -266,12 +275,56 @@ def score(recs, gold, names):
     }
 
 
+def rebuild_sample(bib_path, gold_path, out_path):
+    """
+    Reconstruct the benchmark sample by matching the gold labels against a local
+    .bib. Ships the labels without abstracts, so the corpus text stays yours.
+    """
+    text = Path(bib_path).read_text(encoding="utf-8", errors="replace")
+    entries = {}
+    for chunk in re.split(r"\n@\w+\{", "\n" + text):
+        def field(name):
+            m = re.search(r"\n\s*" + name + r"\s*=\s*\{(.*?)\},?\n", chunk, re.S)
+            return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
+        title, doi = field("title"), field("doi")
+        abstract = field("abstract")
+        if title and abstract:
+            entries[_norm(title)] = {"title": title, "abstract": abstract, "doi": doi}
+        if doi and abstract:
+            entries[doi.strip().lower()] = {"title": title, "abstract": abstract, "doi": doi}
+
+    gold = json.loads(Path(gold_path).read_text(encoding="utf-8"))["labels"]
+    sample, missing = [], []
+    for pid, lab in sorted(gold.items(), key=lambda kv: int(kv[0])):
+        hit = (entries.get((lab.get("doi") or "").strip().lower())
+               or entries.get(_norm(lab.get("title"))))
+        if hit:
+            sample.append({"id": int(pid), **hit})
+        else:
+            missing.append(lab.get("title", pid)[:70])
+
+    Path(out_path).write_text(json.dumps(sample, indent=2, ensure_ascii=False),
+                              encoding="utf-8")
+    print(f"rebuilt {len(sample)}/{len(gold)} sample papers -> {out_path}")
+    if missing:
+        print(f"{len(missing)} not found in {bib_path} (they will simply be skipped):")
+        for m in missing[:10]:
+            print(f"   - {m}")
+
+
+def _norm(t):
+    return re.sub(r"[^a-z0-9]+", " ", (t or "").lower()).strip()
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--models", nargs="+", required=True)
+    ap.add_argument("--rebuild-sample", metavar="BIB",
+                    help="build the sample from this .bib using --gold, write "
+                         "it to --sample, then exit")
+    ap.add_argument("--models", nargs="+")
     ap.add_argument("--sample", required=True)
     ap.add_argument("--gold", required=True)
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--out")
     ap.add_argument("--modes", nargs="+", default=["plain", "schema"])
     ap.add_argument("--base-url", default="http://localhost:11434")
     ap.add_argument("--temperature", type=float, default=0.1)
@@ -284,6 +337,12 @@ def main():
                          "questions; positive = 'is this paper good?', inverted "
                          "in code. Isolates prompt phrasing from model ability.")
     args = ap.parse_args()
+
+    if args.rebuild_sample:
+        rebuild_sample(args.rebuild_sample, args.gold, args.sample)
+        return
+    if not args.models or not args.out:
+        ap.error("--models and --out are required unless --rebuild-sample is given")
 
     if args.think is not None:
         args.think = args.think.lower() in ("true", "1", "yes")
