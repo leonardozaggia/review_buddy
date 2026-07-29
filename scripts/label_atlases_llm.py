@@ -312,6 +312,9 @@ def main() -> int:
     ap.add_argument("--cache-dir", default="results/atlas_llm_cache")
     ap.add_argument("--limit", type=int, default=0, help="only first N PDFs (sampling)")
     ap.add_argument("--only", default="", help="comma-separated regex-pass statuses to process")
+    ap.add_argument("--all-pdfs", action="store_true",
+                    help="label every PDF in --pdf-dir, including ones absent "
+                         "from the bib (default: bib members only)")
     args = ap.parse_args()
 
     def rooted(p):
@@ -327,6 +330,24 @@ def main() -> int:
         print(f"No PDFs in {pdf_dir}")
         return 1
 
+    bib = next((c for c in [pdf_dir.parent / "references_filtered_ai.bib",
+                            pdf_dir.parent / "references_filtered.bib"] if c.exists()), None)
+    index = build_pdf_index(bib) if bib else {}
+
+    # results/pdfs accumulates across runs, so it holds PDFs from screening
+    # passes that are no longer part of the corpus. Labelling those would put
+    # papers the filter has since excluded back into the atlas counts.
+    if index and not args.all_pdfs:
+        in_bib = [p for p in pdfs if p.stem in index]
+        skipped = len(pdfs) - len(in_bib)
+        if skipped:
+            print(f"Skipping {skipped} PDFs not in {bib.name} "
+                  f"(left over from an earlier run; --all-pdfs to include them)")
+        pdfs = in_bib
+        if not pdfs:
+            print("No PDFs matched the bib - is this the bib the downloader used?")
+            return 1
+
     # regex pass results: for --only filtering and for the agreement column
     regex_by_file = {}
     ucsv = rooted(args.usage_csv)
@@ -340,10 +361,6 @@ def main() -> int:
         print(f"--only {sorted(want)} -> {len(pdfs)} PDFs")
     if args.limit:
         pdfs = pdfs[: args.limit]
-
-    bib = next((c for c in [pdf_dir.parent / "references_filtered_ai.bib",
-                            pdf_dir.parent / "references_filtered.bib"] if c.exists()), None)
-    index = build_pdf_index(bib) if bib else {}
 
     print(f"Labelling {len(pdfs)} PDFs with {args.model} (cache: {cache_dir.name})")
     rows, t0 = [], time.time()
