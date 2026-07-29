@@ -205,7 +205,8 @@ def main() -> int:
     ap.add_argument("--final", default="results/atlas_final.csv")
     ap.add_argument("--pdf-dir", default="results/pdfs")
     ap.add_argument("--out", default="results/atlas_roles.csv")
-    ap.add_argument("--model", default="llama3.2:3b")
+    # see the note in label_atlases_llm.py on why this is no longer llama3.2:3b
+    ap.add_argument("--model", default="gemma3:4b")
     ap.add_argument("--ollama-url", default="http://localhost:11434")
     ap.add_argument("--cache-dir", default="results/atlas_role_cache")
     ap.add_argument("--limit", type=int, default=0)
