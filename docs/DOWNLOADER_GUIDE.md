@@ -7,16 +7,21 @@ The Paper Downloader module automatically downloads PDFs for papers from your se
 ## Features
 
 ✅ **Multi-strategy download approach with automatic fallback:**
-0. **Zotero translators** (primary — hundreds of site-specific PDF resolvers; requires the translation server, see below)
-1. Direct PDF links (if available in metadata)
-2. arXiv PDFs (fully automatic, no API key needed)
-3. bioRxiv/medRxiv (for biomedical preprints)
-4. Unpaywall (open access papers via DOI)
-5. Crossref API (full-text links, uses the polite pool when an email is set)
-6. PubMed Central (NCBI Open Access service & Europe PMC)
-7. Publisher-specific patterns (MDPI, Frontiers, Nature, IEEE, ScienceDirect, Springer, PLOS)
-8. HTML scraping (extracts PDF links from paper pages)
-9. Sci-Hub (optional fallback for paywalled papers)
+1. **Zotero resolver chain** (primary — `doi` → `url` → PMCID → Zotero's own open-access index, with translators as the page-parsing step; see [ZOTERO_HOW_IT_WORKS.md](ZOTERO_HOW_IT_WORKS.md))
+2. Direct PDF links (if available in metadata)
+3. arXiv PDFs (fully automatic, no API key needed)
+4. bioRxiv/medRxiv (for biomedical preprints)
+5. Unpaywall (open access papers via DOI)
+6. Crossref API (full-text links, uses the polite pool when an email is set)
+7. PubMed Central (NCBI Open Access service & Europe PMC)
+8. Publisher-specific patterns (MDPI, Frontiers, Nature, IEEE, ScienceDirect, Springer, PLOS)
+9. HTML scraping (extracts PDF links from paper pages)
+10. Real browser (Camoufox — optional, for Cloudflare-protected publishers)
+11. Sci-Hub (optional fallback for paywalled papers)
+
+The browser fetcher is also used as a **fast path**, ahead of the HTTP
+strategies, when the paper's URL matches a domain known to block them outright
+(ScienceDirect, Wiley, MDPI) — no point spending three failed requests first.
 
 ✅ **Smart handling:**
 - DOI lookup via Crossref (if DOI missing)
@@ -156,23 +161,28 @@ The downloader attempts strategies in the following order:
 - **API Key**: None required
 - **Supported**: MDPI, Frontiers, Nature, IEEE, ScienceDirect, Springer, PLOS
 
-### 8. ResearchGate & Academia.edu
-- **When**: Title available
-- **Success Rate**: Variable (20-30%)
-- **API Key**: None required
-- **Coverage**: Papers uploaded by authors
-
-### 9. HTML Scraping
+### 8. HTML Scraping
 - **When**: URL available
 - **Success Rate**: Variable (30-50%)
 - **API Key**: None required
 - **Coverage**: Extracts PDF links from paper landing pages
 
+### 9. Real browser (Camoufox, optional)
+- **When**: `download.use_browser: true` — immediately for known Cloudflare
+  domains (ScienceDirect, Wiley, MDPI), otherwise only after every cheaper
+  HTTP strategy has failed
+- **Success Rate**: high on exactly the publishers nothing else reaches; see the
+  measured results in [ZOTERO_HOW_IT_WORKS.md](ZOTERO_HOW_IT_WORKS.md)
+- **Cost**: ~11-18 s for the first paper on a domain (homepage warm-up), ~7 s
+  after, vs milliseconds for an HTTP request — which is why it runs last
+- **Setup**: `pip install camoufox[geoip] playwright && python -m camoufox fetch`,
+  then `python scripts/browser_login.py` once
+
 ### 10. Sci-Hub (Optional)
 - **When**: Enabled and paper has DOI
 - **Success Rate**: Variable (depends on Sci-Hub availability)
 - **Legal Note**: Use responsibly and in accordance with local laws
-- **Setup**: Enabled via `USE_SCIHUB = True` in script
+- **Setup**: `download.use_scihub: true` in `config.yaml`
 
 ## Output
 
@@ -226,7 +236,7 @@ If Sci-Hub fails, the downloader will log the error and continue with other pape
 Run the test script to verify setup:
 
 ```bash
-python searchers/test_paper_downloader.py
+python src/searchers/test_paper_downloader.py
 ```
 
 This will:
@@ -279,6 +289,18 @@ print(f"Downloaded {pdf_count} / {len(papers)} papers")
 ```
 
 ## Success Rate Expectations
+
+### Measured small run
+
+25 results each from Scopus + PubMed + arXiv, university network, browser
+fetcher on: **61 unique papers** fetched and filtered in **~8 s**, then
+**47/56 PDFs (84%)** downloaded — 33 via the fast HTTP/Zotero path, 14 via the
+real browser. The misses were subscription walls (ACM, APA, some Elsevier).
+
+Larger, publisher-broken-down benchmarks are in the
+[README](../README.md) and [ZOTERO_HOW_IT_WORKS.md](ZOTERO_HOW_IT_WORKS.md).
+
+### Rules of thumb
 
 Based on typical research queries:
 
