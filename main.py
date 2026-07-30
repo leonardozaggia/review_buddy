@@ -36,8 +36,10 @@ PREFERRED_ENV = "autosearch"
 
 # Line-buffer our own stdout so main.py's banners/summary interleave correctly
 # with the (unbuffered) subprocess step output instead of all flushing at exit.
+# UTF-8 too: on Windows a redirected stdout defaults to cp1252, which cannot
+# encode the ✓/⚠/✗ glyphs below, so `python main.py > run.log` would crash.
 try:
-    sys.stdout.reconfigure(line_buffering=True)
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 except Exception:
     pass
 

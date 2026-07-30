@@ -19,6 +19,15 @@ from dotenv import load_dotenv
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
+# On Windows, stdout falls back to cp1252 whenever it isn't a console (piped to
+# a file, or captured by another tool), and cp1252 cannot encode the ✓/⚠ glyphs
+# printed below — `python 01_fetch_metadata.py > run.log` would die on the first
+# one. Force UTF-8 so redirecting output can never take the run down.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 from src.paper_searcher import PaperSearcher
 from src.config import Config
 from src.settings import load_settings
