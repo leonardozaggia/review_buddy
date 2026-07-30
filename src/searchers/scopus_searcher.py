@@ -14,6 +14,35 @@ from ..progress import create_progress_tracker
 logger = logging.getLogger(__name__)
 
 
+def _wrapped_in_parens(query: str) -> bool:
+    """
+    True only if a single pair of parentheses encloses the entire query.
+
+    `(A OR B)` qualifies; `(A) AND (B)` does not, even though it also starts
+    with '(' and ends with ')'. Parentheses inside quoted phrases are ignored.
+    """
+    if not (query.startswith("(") and query.endswith(")")):
+        return False
+
+    depth = 0
+    in_quotes = False
+    last = len(query) - 1
+    for i, char in enumerate(query):
+        if char == '"':
+            in_quotes = not in_quotes
+        elif in_quotes:
+            continue
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0 and i < last:
+                return False  # the opening paren closed early: not a wrapper
+            if depth < 0:
+                return False  # unbalanced
+    return depth == 0
+
+
 class ScopusSearcher:
     """Search for papers in Scopus database"""
     
@@ -107,14 +136,18 @@ class ScopusSearcher:
             # Query already has field codes, use as-is
             scopus_query = normalized_query
         else:
-            # Simple boolean query without field codes
-            # Remove outer parentheses if the query is wrapped in them
+            # Simple boolean query without field codes: scope the WHOLE query to
+            # title/abstract/keywords. Redundant outer parentheses are dropped
+            # only when they genuinely wrap everything — "(A) AND (B)" also
+            # starts with '(' and ends with ')', but stripping those leaves
+            # "TITLE-ABS-KEY(A) AND (B)", where B escapes the field restriction
+            # and is matched against every Scopus field including references and
+            # affiliations. On a real three-group query that inflated the result
+            # set more than tenfold (544 -> 5751).
             stripped_query = normalized_query.strip()
-            if stripped_query.startswith('(') and stripped_query.endswith(')'):
-                inner_query = stripped_query[1:-1].strip()
-                scopus_query = f"TITLE-ABS-KEY({inner_query})"
-            else:
-                scopus_query = f"TITLE-ABS-KEY({normalized_query})"
+            if _wrapped_in_parens(stripped_query):
+                stripped_query = stripped_query[1:-1].strip()
+            scopus_query = f"TITLE-ABS-KEY({stripped_query})"
 
         # Fix Scopus-specific syntax issues
         # In Scopus, standalone NOT should be AND NOT
