@@ -43,6 +43,15 @@ cp .env.example .env
 
 **arXiv and Google Scholar need no keys.**
 
+**Delete the optional lines you don't fill in.** `.env.example` ships
+placeholder *values*, and leaving one in place is worse than omitting the
+variable. An absent `PUBMED_API_KEY` costs you nothing but a lower rate limit;
+the literal string `your_pubmed_api_key_here` is sent to NCBI as a real key,
+which rejects the entire request with `HTTP 400 {"error":"API key invalid"}` —
+so PubMed yields nothing while Scopus and arXiv work normally. The loader
+detects and ignores the known placeholder patterns and warns when it does, but
+a deleted line is cleaner than a warning on every run.
+
 ## Run configuration
 
 ```bash

@@ -14,7 +14,10 @@ abstract to a third party.
 
 - **Search.** One boolean query across Scopus, PubMed, arXiv, IEEE Xplore and
   Google Scholar. Results are deduplicated and merged across sources into
-  `papers.csv`, `references.bib` and `references.ris`.
+  `papers.csv`, `references.bib` and `references.ris`. Each API's syntax quirks
+  and hard result ceilings are handled for you — a Scopus search over the
+  5000-record per-query limit is automatically re-issued as one-year slices so
+  a broad query still returns everything.
 - **Screen.** Your inclusion criteria, written as plain-English yes/no questions,
   applied to every abstract by a local Ollama model. Nothing leaves the machine.
   Every decision is logged with a confidence score and the model's reasoning, and
@@ -75,11 +78,44 @@ follow-up on 12 fresh DOIs across Elsevier, Wiley, MDPI and Frontiers retrieved
 | Publisher | Before | With browser fetcher |
 |---|---|---|
 | Wiley | 0/9 | **3/3** |
-| Elsevier | 4/49 (~8%) | **2/3** |
 
 Getting there took more than "add a browser" — see
 [docs/ZOTERO_HOW_IT_WORKS.md](docs/ZOTERO_HOW_IT_WORKS.md) for the full
 investigation, including why a stock Playwright Firefox is still blocked.
+
+#### Elsevier, properly measured
+
+Twelve DOIs is too small to conclude anything about the publisher that matters
+most, so `scripts/benchmark_publisher.py` re-ran the question at scale: **100
+Elsevier DOIs** (prefix `10.1016`) drawn from a live Scopus search, spread
+evenly over 2020–2026 across **71 distinct journals**, capped at 6 per journal.
+The same 100 DOIs were run twice on a university network, 4 workers:
+
+| Configuration | PDFs retrieved | Wall time |
+|---|---|---|
+| HTTP chain + Zotero resolver | 14/100 (14%) | 2.2 min |
+| **+ Camoufox browser fetcher** | **90/100 (90%)** | 14.2 min |
+
+Which strategy actually won each paper, in the full run:
+
+| Strategy | Papers | Avg time |
+|---|---|---|
+| Real browser (last resort) | 77 | 36.8s |
+| Zotero resolver chain | 11 | 4.3s |
+| Unpaywall | 2 | 6.7s |
+
+Read that as: **on Elsevier, the browser fetcher is not a fallback, it is the
+mechanism.** Everything cheaper handles 13 papers in 100; the browser handles 77
+more. It costs the wall time — 8.5s per paper against 1.3s — which is the whole
+argument for keeping it last in the chain rather than first.
+
+The 10 failures were subscription content the account has no entitlement to; no
+resolver or browser can fix those.
+
+```bash
+python scripts/benchmark_publisher.py --query query.txt --limit 100
+python scripts/benchmark_publisher.py --query query.txt --limit 100 --no-browser
+```
 
 ### Method by method
 
@@ -155,10 +191,12 @@ Output lands in `results/`: `papers.csv`, `references.bib`, `references.ris`,
 
 ## What it will not do
 
-- **Elsevier is still hard.** ScienceDirect sits behind Cloudflare's interactive
-  challenge on subscription content. The browser fetcher turns ~8% into
-  something usable, but this is an arms race and there is no honest claim of a
-  fix. Wiley and MDPI behave the same way; Wiley recovered better.
+- **Elsevier needs the browser, and the browser costs time.** ScienceDirect sits
+  behind Cloudflare's interactive challenge, so the HTTP chain retrieves 14/100
+  on its own; the Camoufox fetcher takes that to 90/100 at roughly 6x the wall
+  time per paper. That is a working answer, not a solved problem — it is an arms
+  race, and a corpus of thousands is an overnight download at 8.5s each. Wiley
+  and MDPI behave the same way.
 - **Paywalls are paywalls.** The resolver chain only *finds* a PDF link. You
   still need access — campus network or VPN. IP-based access works; cookie-based
   library logins largely do not.

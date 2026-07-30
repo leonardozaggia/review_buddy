@@ -297,6 +297,20 @@ fetcher on: **61 unique papers** fetched and filtered in **~8 s**, then
 **47/56 PDFs (84%)** downloaded — 33 via the fast HTTP/Zotero path, 14 via the
 real browser. The misses were subscription walls (ACM, APA, some Elsevier).
 
+### Measured single-publisher run (Elsevier, n=100)
+
+`scripts/benchmark_publisher.py`, 100 Elsevier DOIs across 71 journals,
+2020–2026, university network, 4 workers, same set run twice:
+
+| Configuration | Retrieved | Per paper |
+|---|---|---|
+| HTTP chain + Zotero resolver | 14/100 (14%) | 1.3s |
+| **+ browser fetcher** | **90/100 (90%)** | 8.5s |
+
+Won by: browser 77, Zotero 11, Unpaywall 2. Enabling `use_browser` is the single
+largest lever on a Cloudflare-protected publisher, and the cost is wall time —
+budget roughly 8-9s per paper, so a few thousand papers is an overnight job.
+
 Larger, publisher-broken-down benchmarks are in the
 [README](../README.md) and [ZOTERO_HOW_IT_WORKS.md](ZOTERO_HOW_IT_WORKS.md).
 
@@ -308,6 +322,8 @@ Based on typical research queries:
 - **bioRxiv/medRxiv preprints**: 95-100% success
 - **PubMed Central papers**: 90-95% success
 - **Open access publishers (MDPI, Frontiers, PLOS)**: 80-90% success
+- **Elsevier/ScienceDirect**: ~90% *with* `use_browser` and institutional
+  access, ~14% without it (measured, n=100)
 - **Other open access (Unpaywall)**: 30-50% success
 - **Paywalled (with Sci-Hub)**: Variable, 50-80% success
 - **Overall (without Sci-Hub)**: 50-70% success

@@ -2,6 +2,94 @@
 
 Complete guide for writing effective search queries across all sources.
 
+## Note: Scopus field scoping changed (re-fetch older corpora)
+
+Queries are scoped to title/abstract/keywords by wrapping them in
+`TITLE-ABS-KEY(...)`. Until this was fixed, redundant outer parentheses were
+stripped with a naive "starts with `(` and ends with `)`" test — which is also
+true of the standard systematic-review shape `(A) AND (B) AND (C)`. Stripping
+those produced:
+
+```
+TITLE-ABS-KEY(A) AND (B) AND (C)
+```
+
+Only group A was field-scoped. Groups B and C escaped the restriction and were
+matched against **every Scopus field**, including reference lists, affiliations
+and funding text — so papers that merely *cited* something on-topic were pulled
+in. Measured on two real queries, 2020 onward:
+
+| Query | Before | After |
+|---|---|---|
+| stroke × cognition × longitudinal methods | 5751 | **544** |
+| EEG single-trial × behaviour | 2446 | **116** |
+
+That is a 10–21x inflation, nearly all of it off-topic. It also explains
+spurious collisions with the 5000-record ceiling on queries that legitimately
+return a few hundred papers.
+
+**If you built a Scopus corpus before this fix, re-run the search** — the old
+result set is not a superset you can simply filter, it is a differently-scoped
+query.
+
+## Write one query in plain boolean syntax — never in Scopus syntax
+
+Every source receives the **same query string**. Only Scopus understands its own
+field codes and operators, and no other source treats them as an error — they
+just quietly produce nothing:
+
+| Query | Scopus | PubMed | arXiv |
+|-------|--------|--------|-------|
+| `("single-trial" OR "trial-by-trial") AND (EEG OR ERP)` | works | **603** | 58 |
+| `TITLE-ABS-KEY(("single-trial" OR "trial-by-trial") AND (EEG OR ERP))` | works | **0** | 58 (unrelated) |
+| `ABS("single-trial") AND KEY(EEG)` | works | **0** | 24247 (unrelated) |
+| `"single-trial" W/5 EEG` | works | **0** | 7413 (unrelated) |
+| `"single-trial" PRE/3 EEG` | works | **0** | 11290 (unrelated) |
+
+PubMed has no `TITLE-ABS-KEY` field, so it reads the code as an ordinary search
+term and ANDs it into the query — `"TITLE-ABS-KEY"[Title/Abstract] AND (...)`.
+No paper contains that phrase, so you get **0 results with HTTP 200, no error
+and no warning**: identical to "this database has nothing on your topic". A
+Scopus-native query is therefore the classic cause of "Scopus found thousands,
+PubMed found none".
+
+The searcher now detects these constructs and warns before running, but the fix
+is always the same: use quoted phrases, `AND` / `OR` / `NOT`, and parentheses,
+and let each searcher adapt the query for its own API.
+
+## Wildcards behave differently on every source
+
+**PubMed needs 4+ leading characters.** It ignores shorter truncations, so
+`Response tim*` silently contributes nothing. Write `time*` instead.
+
+**arXiv has no wildcards at all**, and the searcher strips them. That does *not*
+degrade to a prefix search — it leaves a literal token that usually matches
+nothing, and the damage is per-term and unpredictable:
+
+| written | sent to arXiv | arXiv hits |
+|---|---|---|
+| `Trajector*` | `Trajector` | 3 — vs 59,712 for `Trajectory` |
+| `Ischemi*` | `Ischemi` | 0 — vs 324 for `Ischemic` |
+| `Fluctuat*` | `Fluctuat` | 79,436 — the stemmer happens to rescue this one |
+
+So a wildcard-heavy query can return near-zero from arXiv while returning
+thousands from Scopus, and the zero means "the terms didn't translate", not
+"arXiv has no such papers". The searcher warns and names every truncated term.
+If arXiv matters for a search, spell the variants out: `trajectory OR
+trajectories`.
+
+**Scopus is the only source where wildcards work as written.**
+
+## `NOT` is rewritten per source
+
+`NOT` is not portable either. Scopus needs `AND NOT`, arXiv needs `ANDNOT`, and
+PubMed takes `NOT` as-is; the searchers translate it for you. One arXiv
+subtlety worth knowing, because it is invisible when it bites: a trailing
+`ANDNOT` clause swallows the date restriction the searcher appends, which
+silently drops the year filter. The query is parenthesised before the date
+clause is added to prevent this, so no action is needed — but if you hand-build
+an arXiv query elsewhere, wrap it.
+
 ## Query Input Methods
 
 ### Inline Query (Simple)

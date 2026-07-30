@@ -24,6 +24,32 @@ download:
 
 Run a different config with `python main.py --config my.yaml`.
 
+## Credentials (`.env`)
+
+**Delete the lines you don't fill in.** `.env.example` ships placeholder
+*values*, not empty ones, and a leftover placeholder is worse than an absent
+variable — an unset optional key just means a lower rate limit, but a bogus one
+is transmitted as if real and the API rejects the whole request:
+
+```
+PUBMED_API_KEY=your_pubmed_api_key_here
+→ HTTP 400 {"error":"API key invalid","api-key":"your_pubmed_api_key_here"}
+→ PubMed returns 0 papers while every other source works normally
+```
+
+The loader now recognises the `.env.example` patterns (`your_*`, `*_here`,
+`<...>`, `changeme`, `*@example.com`), ignores them, and warns:
+
+```
+WARNING  PUBMED_API_KEY still holds the .env.example placeholder
+         'your_pubmed_api_key_here' — ignoring it.
+```
+
+Note that credential problems are not symmetric across sources. `PUBMED_EMAIL`
+gates whether PubMed runs at all, so an absent one means the source is skipped
+silently; `PUBMED_API_KEY` is optional, so a *bad* one lets the source run and
+fail. Both now surface a message rather than an unexplained zero.
+
 ## Search
 
 ```yaml
@@ -43,13 +69,36 @@ enforces its own hard limit, and no value here can exceed it:
 
 | Source | Hard limit per query | What happens when you pass it |
 |--------|---------------------|-------------------------------|
-| Scopus | **5000 records** | Elsevier rejects `start >= 5000` outright. The searcher stops there and logs a warning naming the total it *could* see. |
+| Scopus | **5000 records** | Elsevier rejects `start >= 5000` outright. Handled automatically — see year slicing below. |
 | PubMed | **9999 UIDs** | NCBI silently clamps `retmax`. The searcher warns with the true match count. |
 | arXiv | ~30000, then HTTP 500 | Deep pagination fails; the searcher stops and keeps what it has. |
 
 Hitting a limit is normal for a broad query and is **not** an error — the run
-continues to the next source. To get past a ceiling, narrow the query or split
-it (a year at a time is the usual trick) and merge the results.
+continues to the next source.
+
+**Scopus splits itself by year automatically.** The 5000 records are a *per
+query* ceiling, not a per-account one, so when a search exceeds it the searcher
+re-issues it as a series of one-year queries and concatenates the results:
+
+```
+Scopus: Found 5751 total results
+Scopus: 5751 matches exceed the 5000-record per-query ceiling —
+        splitting into 7 one-year searches (2020–present) to retrieve all of them.
+Scopus: Successfully retrieved 5751 papers
+```
+
+The slices are disjoint, so nothing is double-counted. Two conditions apply:
+
+- **`year_from` must be set.** Publication year is the only axis available to
+  slice on; without a start year the searcher can't build the windows and falls
+  back to the first 5000, saying so.
+- **A single year over 5000 can't be split further.** You get that year's first
+  5000 and a warning naming how many are unreachable. Narrow the query to
+  recover them.
+
+Slicing costs roughly one extra request per year plus one to count, which is
+negligible against Elsevier's 20,000/week quota, but it does multiply wall time
+by the number of windows.
 
 **Keep the query under ~3000 characters.** All three APIs are queried over HTTP
 GET, and every one of them rejects an over-long URL — PubMed and arXiv with

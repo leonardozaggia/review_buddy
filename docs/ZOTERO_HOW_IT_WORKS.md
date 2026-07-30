@@ -151,6 +151,32 @@ and throttling fixes, outright `403`s fell to 13; the dominant failure is now
 "fetched something that isn't a PDF" (33) — i.e. a paywall or landing page
 returned instead of the file.
 
+### Elsevier at scale: the browser is the mechanism, not the fallback
+
+The 4/49 above predates the browser fetcher. Re-measured on **100 Elsevier DOIs**
+(prefix `10.1016`, drawn from a live Scopus search, 71 distinct journals,
+2020–2026, capped 6 per journal), same set run twice on a university network
+with `scripts/benchmark_publisher.py`:
+
+| Configuration | Retrieved | Wall time | Per paper |
+|---|---|---|---|
+| HTTP chain + Zotero resolver | 14/100 (14%) | 2.2 min | 1.3s |
+| **+ Camoufox browser fetcher** | **90/100 (90%)** | 14.2 min | 8.5s |
+
+Strategy that won each paper in the full run: browser 77, Zotero resolver 11,
+Unpaywall 2. So every HTTP-based strategy combined accounts for 13 papers in
+100, and the browser for 77 more — on this publisher the browser is doing
+essentially all of the work.
+
+Two things follow. First, the 14% floor confirms the original diagnosis: this is
+bot-blocking, not a resolver gap, because the resolver chain finds the links
+fine and then cannot fetch them. Second, the browser stays **last** in the chain
+despite winning most Elsevier papers, because it is ~6x slower per paper and the
+cheaper strategies win outright on open-access publishers.
+
+The remaining 10 failures were subscription content outside the account's
+entitlement — no fetcher resolves those.
+
 The remaining gap is therefore concentrated almost entirely on
 Cloudflare-protected publishers (ScienceDirect, Wiley, MDPI). Recovering those
 requires a real browser engine, not more resolvers.
