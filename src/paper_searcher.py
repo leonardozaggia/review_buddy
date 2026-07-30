@@ -3,6 +3,7 @@ Main paper searcher - coordinates all search sources and provides unified interf
 """
 
 import logging
+import re
 from typing import List, Dict, Optional, Set
 from datetime import datetime, date
 from pathlib import Path
@@ -16,6 +17,44 @@ from .searchers.ieee_searcher import IEEESearcher
 
 
 logger = logging.getLogger(__name__)
+
+
+# Scopus-only query syntax. Every source is sent the SAME query string, and
+# only Scopus parses these. Nowhere else treats them as an error:
+#   - PubMed turns TITLE-ABS-KEY into an ordinary search term and ANDs it in
+#     ('"TITLE-ABS-KEY"[Title/Abstract] AND (...)'), so nothing matches and it
+#     returns 0 with HTTP 200, no error and no warning.
+#   - arXiv returns unrelated papers instead.
+# Both outcomes are indistinguishable from "this database has nothing on your
+# topic", which is why they need calling out before the search runs.
+_SCOPUS_FIELD_CODES = ("TITLE(", "ABS(", "KEY(", "AUTH(", "AFFIL(",
+                       "SRCTITLE(", "DOCTYPE(", "PUBYEAR")
+_SCOPUS_PROXIMITY = re.compile(r"\b(?:W|PRE)/\d+\b", re.IGNORECASE)
+_SHORT_WILDCARD = re.compile(r"\b\w{1,3}\*")
+
+# Sources that receive the query verbatim and cannot parse Scopus syntax.
+_NON_SCOPUS_SOURCES = ("pubmed", "arxiv", "scholar", "ieee")
+
+
+def scopus_only_constructs(query: str) -> List[str]:
+    """Return the Scopus-specific constructs found in `query`, if any."""
+    found = []
+    upper = query.upper()
+
+    if "TITLE-ABS-KEY(" in upper:
+        found.append("TITLE-ABS-KEY(...)")
+        upper = upper.replace("TITLE-ABS-KEY(", " ")  # contains "KEY(" as a substring
+
+    for code in _SCOPUS_FIELD_CODES:
+        if code in upper:
+            found.append(f"{code}...)" if code.endswith("(") else code)
+
+    if _SCOPUS_PROXIMITY.search(query):
+        found.append("proximity operator (W/n or PRE/n)")
+    if _SHORT_WILDCARD.search(query):
+        found.append("wildcard with under 4 leading characters (PubMed ignores these)")
+
+    return found
 
 
 class PaperSearcher:
@@ -74,7 +113,19 @@ class PaperSearcher:
         
         logger.info(f"Searching sources: {sources}")
         logger.info(f"Query: {query}")
-        
+
+        offenders = scopus_only_constructs(query)
+        affected = [s for s in sources if str(s).lower() in _NON_SCOPUS_SOURCES]
+        if offenders and affected:
+            logger.warning(
+                "Query contains Scopus-only syntax: %s. Scopus honours it, but %s "
+                "receive the same string verbatim and will return 0 or unrelated results — "
+                "neither API reports this as an error, so it looks like the database simply "
+                "has nothing. For a multi-source search use plain boolean syntax: quoted "
+                "phrases, AND / OR / NOT, and parentheses.",
+                ", ".join(offenders), " and ".join(affected),
+            )
+
         # Search each source
         if 'scopus' in sources and self.config.has_scopus_access():
             self._search_scopus(query, year_from, year_to)
