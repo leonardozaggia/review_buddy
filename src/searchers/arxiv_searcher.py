@@ -3,6 +3,7 @@ arXiv searcher - Search for preprint papers on arXiv.org
 Uses the free arXiv API (no key required).
 """
 
+import re
 import requests
 import logging
 from typing import List, Optional
@@ -52,10 +53,26 @@ class ArxivSearcher:
         # This is crucial for queries read from .txt files
         normalized_query = ' '.join(query.split())
         
-        # arXiv doesn't support wildcards (*), so remove them
-        # Replace common patterns like "Electroencephalogra*" with just "Electroencephalogr"
+        # arXiv supports no wildcards at all, so strip them. Be aware this does
+        # NOT degrade to a prefix search — it leaves a literal token that often
+        # matches nothing: "Trajector*" becomes "Trajector" (3 hits, vs 59,712
+        # for "Trajectory") and "Ischemi*" becomes "Ischemi" (0 hits, vs 324 for
+        # "Ischemic"). Sometimes arXiv's stemmer rescues it ("Fluctuat" works),
+        # so the damage is per-term and unpredictable. Nothing here can fix that;
+        # what we can do is stop it being silent.
+        truncated = re.findall(r'[\w-]+(?=\*)', normalized_query)
+        if truncated:
+            logger.warning(
+                "arXiv does not support wildcards, so %d term(s) were truncated to a bare "
+                "stem that may match nothing: %s. A low or zero arXiv count here means the "
+                "terms didn't translate, not necessarily that arXiv has no such papers — "
+                "spell out the variants (e.g. 'trajectory OR trajectories') if arXiv matters "
+                "for this search.",
+                len(truncated), ", ".join(f"{t}* -> {t}" for t in truncated[:6])
+                + (", ..." if len(truncated) > 6 else ""),
+            )
         arxiv_safe_query = normalized_query.replace('*', '')
-        
+
         # arXiv also has issues with "NOT" - it uses "ANDNOT" instead
         # Convert " NOT " to " ANDNOT "
         arxiv_safe_query = arxiv_safe_query.replace(' NOT ', ' ANDNOT ')
