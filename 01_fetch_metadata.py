@@ -80,6 +80,20 @@ def main():
         return 1
     
     print(f"✓ Available sources: {', '.join(available_sources)}")
+
+    # Warn about sources config.yaml asks for that can't actually run. The
+    # searcher skips these silently, which is indistinguishable from "the source
+    # returned 0 papers". main.py's preflight says this; running 01 on its own
+    # otherwise wouldn't.
+    credentials = {
+        "scopus": (config.has_scopus_access(), "SCOPUS_API_KEY not set in .env"),
+        "pubmed": (config.has_pubmed_access(), "PUBMED_EMAIL not set in .env"),
+        "ieee": (config.has_ieee_access(), "IEEE_API_KEY not set in .env"),
+    }
+    for name in SOURCES:
+        usable, why = credentials.get(str(name).lower(), (True, ""))
+        if not usable:
+            print(f"⚠ '{name}' is listed in config.yaml sources but will be SKIPPED — {why}")
     print()
     print(f"Search query: {QUERY}")
     print(f"Year from: {YEAR_FROM}")

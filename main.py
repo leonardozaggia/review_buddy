@@ -26,7 +26,6 @@ with `autosearch` automatically.
 import argparse
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import time
@@ -72,14 +71,6 @@ def module_missing(names):
     """Return the subset of `names` not importable in this interpreter."""
     import importlib.util
     return [n for n in names if importlib.util.find_spec(n) is None]
-
-
-def port_open(host: str, port: int, timeout: float = 2.0) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
 
 
 def http_ok(url: str, timeout: float = 3.0) -> bool:
@@ -165,50 +156,71 @@ class Preflight:
         return bool(self.errors)
 
 
-def ensure_zotero_server(pf: Preflight, url: str) -> bool:
-    """Ensure the Zotero translation server is reachable; try to start it."""
-    host, port = "127.0.0.1", 1969
-    if "://" in url:
-        rest = url.split("://", 1)[1]
-        host = rest.split(":")[0].split("/")[0]
-        if ":" in rest:
-            try:
-                port = int(rest.split(":", 1)[1].split("/")[0])
-            except ValueError:
-                pass
+def ensure_zotero_server(pf: Preflight, url: str, assume_yes: bool = False) -> bool:
+    """
+    Ensure the Zotero translation server is reachable.
 
-    if port_open(host, port):
+    Three cases, in order: already up (nothing to do); set up but not running
+    (start it); never set up (offer to run the one-time scripts/setup_zotero.py,
+    which a fresh clone always needs). None of them block the run — without the
+    server we still have Zotero's hosted OA index.
+    """
+    from src import zotero_setup as zs
+
+    host, port = zs.parse_host_port(url)
+
+    if zs.port_open(host, port):
         pf.ok(f"Zotero translation server ({host}:{port})")
         return True
 
-    server_js = ROOT / "vendor" / "translation-server" / "src" / "server.js"
-    node = shutil.which("node")
-    if server_js.exists() and node:
-        print(f"      starting Zotero translation server (node)...")
-        try:
-            subprocess.Popen(
-                [node, str(server_js)],
-                cwd=str(server_js.parent.parent),
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    # Not running. Is it even set up? A fresh clone (or one cloned without
+    # --recursive) has an empty vendor/translation-server.
+    missing = zs.setup_state()
+    if missing:
+        if not zs.node_available():
+            pf.warn(
+                "Zotero translation server not set up, and Node.js is not installed",
+                "PDF finding still works via Zotero's open-access index, but the\n"
+                "site-specific translators won't. To enable them, install Node.js\n"
+                "(https://nodejs.org), then:  python scripts/setup_zotero.py",
             )
-        except OSError as e:
-            pf.warn(f"Could not launch Zotero server ({e})", "Falling back to the OA index only.")
             return False
-        for _ in range(30):
-            if port_open(host, port):
-                pf.ok(f"Zotero translation server started ({host}:{port})")
-                return True
-            time.sleep(1)
-        pf.warn("Zotero server did not come up in 30s", "Continuing with the OA index only.")
+
+        print(c(f"  ⚠ Zotero translation server not set up ({'; '.join(missing)})", "yellow"))
+        print("      It improves the PDF hit rate; setup is one-time and takes a few minutes.")
+        if not assume_yes:
+            try:
+                ans = input(c("  ? Run scripts/setup_zotero.py now? [y/N] ", "yellow"))
+            except EOFError:
+                ans = ""  # non-interactive stdin -> don't block, just explain
+            if ans.strip().lower() not in ("y", "yes"):
+                pf.warn(
+                    "Continuing without the Zotero translation server",
+                    "Falling back to the open-access index only. To enable it later:\n"
+                    "  python scripts/setup_zotero.py\n"
+                    "(or re-run with --yes to set it up automatically)",
+                )
+                return False
+        print("      running scripts/setup_zotero.py — this can take a few minutes...")
+        if not zs.run_setup():
+            pf.warn("Zotero setup failed", "Continuing with the OA index only.\n"
+                                           "Run it manually to see why: python scripts/setup_zotero.py")
+            return False
+
+    # Set up (either already, or just now) — start it.
+    if not zs.SERVER_JS.exists() or not zs.node_available():
+        pf.warn(
+            "Zotero translation server not running",
+            "PDF finding still works via Zotero's open-access index, but the\n"
+            "site-specific translators won't. To enable them:\n" + zs.SETUP_HINT,
+        )
         return False
 
-    pf.warn(
-        "Zotero translation server not running",
-        "PDF finding still works via Zotero's open-access index, but the\n"
-        "site-specific translators won't. To enable them:\n"
-        "  python scripts/setup_zotero.py   (once)\n"
-        "  cd vendor/translation-server && node src/server.js",
-    )
+    print("      starting Zotero translation server (node)...")
+    if zs.start_server(host, port):
+        pf.ok(f"Zotero translation server started ({host}:{port})")
+        return True
+    pf.warn("Zotero server did not come up in 30s", "Continuing with the OA index only.")
     return False
 
 
@@ -418,7 +430,8 @@ def main() -> int:
             pf.warn("curl_cffi not installed (downloads more likely to hit HTTP 403)",
                     "pip install curl_cffi   — strongly recommended")
         if settings.download.get("use_zotero"):
-            ensure_zotero_server(pf, os.getenv("ZOTERO_TRANSLATION_SERVER", "http://127.0.0.1:1969"))
+            ensure_zotero_server(pf, os.getenv("ZOTERO_TRANSLATION_SERVER", "http://127.0.0.1:1969"),
+                                 args.yes)
         if settings.download.get("use_browser"):
             ensure_browser(pf)
 
@@ -443,7 +456,10 @@ def main() -> int:
         return _summary(timings, aborted=True)
 
     if not args.skip_download:
-        rc, t = run_step("03_download_papers.py", "STEP 3/3 — Download PDFs")
+        # Preflight already settled the Zotero question above; tell 03 not to
+        # ask again (it prompts when run standalone).
+        rc, t = run_step("03_download_papers.py", "STEP 3/3 — Download PDFs",
+                         extra_env={"REVIEW_BUDDY_PREFLIGHT": "1"})
         timings.append(("Download PDFs", t, rc))
 
     return _summary(timings)

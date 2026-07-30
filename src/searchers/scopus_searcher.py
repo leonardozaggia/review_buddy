@@ -19,7 +19,13 @@ class ScopusSearcher:
     
     BASE_URL = "https://api.elsevier.com/content/search/scopus"
     ABSTRACT_URL = "https://api.elsevier.com/content/abstract/scopus_id"
-    
+
+    # Elsevier serves at most 5000 records per query: any request with
+    # start >= 5000 returns HTTP 400 "Exceeds the number of search results",
+    # no matter what max_results is set to. Reaching further needs the query
+    # split into smaller slices (e.g. one publication year at a time).
+    MAX_RETRIEVABLE = 5000
+
     def __init__(self, api_key: str, max_results: int = 1000, timeout: int = 30, fetch_abstracts: bool = True):
         """
         Initialize Scopus searcher.
@@ -97,13 +103,21 @@ class ScopusSearcher:
         progress = None
         
         while total_fetched < self.max_results:
+            if start >= self.MAX_RETRIEVABLE:
+                logger.warning(
+                    f"Scopus: stopping at the API's {self.MAX_RETRIEVABLE}-record ceiling for "
+                    f"this query. Anything beyond it is not retrievable — narrow the query or "
+                    f"split it (e.g. one year at a time) to reach the rest."
+                )
+                break
+            page_size = min(count, self.MAX_RETRIEVABLE - start)
             try:
                 # Make request
                 params = {
                     "apiKey": self.api_key,
                     "query": scopus_query,
                     "start": start,
-                    "count": count,
+                    "count": page_size,
                     "sort": "coverDate",
                     "view": "COMPLETE",  # Request complete view to get more fields
                 }
@@ -126,8 +140,15 @@ class ScopusSearcher:
                 
                 if start == 0:
                     logger.info(f"Scopus: Found {total_results} total results")
+                    if total_results > self.MAX_RETRIEVABLE:
+                        logger.warning(
+                            f"Scopus: only the first {self.MAX_RETRIEVABLE} of {total_results} "
+                            f"matches can be downloaded — the Elsevier API refuses to page past "
+                            f"that. This is a hard API limit, not a bug or a quota. To get the "
+                            f"rest, narrow the query or run it one year at a time."
+                        )
                     # Initialize progress bar
-                    max_to_fetch = min(total_results, self.max_results)
+                    max_to_fetch = min(total_results, self.max_results, self.MAX_RETRIEVABLE)
                     progress = create_progress_tracker(max_to_fetch, "Scopus")
                 
                 entries = search_results.get("entry", [])
@@ -148,10 +169,17 @@ class ScopusSearcher:
                     break
                 
                 # Move to next page
-                start += count
+                start += page_size
                 
             except requests.RequestException as e:
-                logger.error(f"Scopus request failed: {e}")
+                resp = getattr(e, "response", None)
+                if resp is not None and resp.status_code == 400 and "Exceeds the number" in resp.text:
+                    logger.warning(
+                        f"Scopus: hit the API's {self.MAX_RETRIEVABLE}-record ceiling "
+                        f"(kept {total_fetched} papers). Narrow the query to reach the rest."
+                    )
+                else:
+                    logger.error(f"Scopus request failed: {e}")
                 break
             except Exception as e:
                 logger.error(f"Scopus parsing error: {e}")

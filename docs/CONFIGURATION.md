@@ -32,11 +32,29 @@ search:
   query_file: query.txt
   year_from: 2020
   year_to: null                 # null = up to the current year
-  max_results_per_source: 50    # use a big number (e.g. 999999) for "unlimited"
+  max_results_per_source: 50    # use a big number (e.g. 999999) for "as many as the API allows"
   pubmed_field: tiab            # Title/Abstract only; null = all fields
   sources: [scopus, pubmed, arxiv]
   output_dir: results
 ```
+
+**`max_results_per_source` is a ceiling you request, not one you get.** Each API
+enforces its own hard limit, and no value here can exceed it:
+
+| Source | Hard limit per query | What happens when you pass it |
+|--------|---------------------|-------------------------------|
+| Scopus | **5000 records** | Elsevier rejects `start >= 5000` outright. The searcher stops there and logs a warning naming the total it *could* see. |
+| PubMed | **9999 UIDs** | NCBI silently clamps `retmax`. The searcher warns with the true match count. |
+| arXiv | ~30000, then HTTP 500 | Deep pagination fails; the searcher stops and keeps what it has. |
+
+Hitting a limit is normal for a broad query and is **not** an error — the run
+continues to the next source. To get past a ceiling, narrow the query or split
+it (a year at a time is the usual trick) and merge the results.
+
+**Keep the query under ~3000 characters.** All three APIs are queried over HTTP
+GET, and every one of them rejects an over-long URL — PubMed and arXiv with
+HTTP 414, Scopus with 413. A rejected query is reported as a failure, not as
+"0 results", so check the log before assuming a query matched nothing.
 
 **Query.** Set `query` inline, or leave it null and put the query in `query.txt`
 — handy for long multi-line boolean queries. Whitespace and newlines are
@@ -53,6 +71,12 @@ normalised automatically.
 
 Queries are adapted per source automatically. Field-specific syntax, per-source
 compatibility and worked examples: [QUERY_SYNTAX.md](QUERY_SYNTAX.md).
+
+**arXiv's parser is the weak one.** It mishandles deeply nested boolean queries
+and quietly returns off-topic results rather than erroring, so treat a low arXiv
+count on a complex query as "the query didn't translate", not "arXiv has nothing".
+arXiv is mostly physics/CS/math/q-bio anyway — single-digit counts are normal for
+clinical topics.
 
 **`pubmed_field: tiab` matters more than it looks.** Without it PubMed matches
 *all* fields — references, affiliations, MeSH — and gets hugely noisy: a

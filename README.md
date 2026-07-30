@@ -105,6 +105,7 @@ retrieved. Three things it shows:
 pip install -r requirements.txt
 cp .env.example .env                    # add one API key / your email
 cp config.example.yaml config.yaml      # query, years, sources, filters
+python scripts/setup_zotero.py          # one-time, optional — see below
 python main.py --ai                     # fetch -> screen -> download
 ```
 
@@ -122,6 +123,20 @@ python 01_fetch_metadata.py
 python 02_abstract_filter_ai.py   # or 02_abstract_filter.py for keyword filtering
 python 03_download_papers.py
 ```
+
+### One-time: the Zotero translation server
+
+The download step gets noticeably better PDF coverage with the vendored Zotero
+translation server, which extracts PDF links from publisher landing pages. It is
+a **git submodule**, so a fresh clone does not have it — `scripts/setup_zotero.py`
+initialises it, runs `npm install` and applies a required patch. It needs Node.js
+and only has to be done once.
+
+You don't have to remember: both `main.py` and `03_download_papers.py` detect a
+missing or unstarted server and offer to set it up and launch it for you. Skipping
+it is fine too — Zotero's *hosted* open-access index needs no local server, so
+downloads still work, you just retrieve fewer PDFs
+([the numbers](#pdf-retrieval): 33% → 39% on a 123-DOI set).
 
 Output lands in `results/`: `papers.csv`, `references.bib`, `references.ris`,
 `pdfs/`, plus a per-paper decision log for the screening step.

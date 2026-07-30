@@ -21,7 +21,12 @@ class PubMedSearcher:
     
     SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-    
+
+    # esearch returns at most 9999 UIDs per request; a larger retmax is silently
+    # clamped ("Restrictions achieved. start and count adjusted to 0, 9999"),
+    # so ask for exactly that and report anything we couldn't reach.
+    MAX_RETMAX = 9999
+
     def __init__(self, email: str, api_key: Optional[str] = None, max_results: int = 1000,
                  timeout: int = 30, field: Optional[str] = "tiab"):
         """
@@ -81,11 +86,21 @@ class PubMedSearcher:
         
         # Step 1: Search to get PMIDs
         pmids = self._search_pmids(pubmed_query)
-        
-        if not pmids:
-            logger.info("PubMed: No results found")
+
+        if pmids is None:
+            # A failed request is not the same as an empty result set, and
+            # reporting it as "no results" sends people off rewriting a query
+            # that was never actually run.
+            logger.error(
+                "PubMed: the search request FAILED — this is NOT 'no matching papers'. "
+                "See the error above; the run continues with the other sources."
+            )
             return papers
-        
+
+        if not pmids:
+            logger.info("PubMed: query ran successfully but matched 0 papers")
+            return papers
+
         logger.info(f"PubMed: Found {len(pmids)} results, fetching details...")
         
         # Step 2: Fetch details in batches
@@ -104,21 +119,22 @@ class PubMedSearcher:
         logger.info(f"PubMed: Successfully retrieved {len(papers)} papers")
         return papers
     
-    def _search_pmids(self, query: str) -> List[str]:
+    def _search_pmids(self, query: str) -> Optional[List[str]]:
         """
         Search PubMed and get list of PMIDs.
-        
+
         Args:
             query: PubMed query string
-        
+
         Returns:
-            List of PubMed IDs
+            List of PubMed IDs, or None if the request itself failed (which the
+            caller must not confuse with an empty result set).
         """
         try:
             params = {
                 "db": "pubmed",
                 "term": query,
-                "retmax": self.max_results,
+                "retmax": min(self.max_results, self.MAX_RETMAX),
                 "retmode": "json",
                 "email": self.email,
             }
@@ -135,15 +151,43 @@ class PubMedSearcher:
                 timeout=self.timeout
             )
             response.raise_for_status()
-            
-            data = response.json()
-            pmids = data.get("esearchresult", {}).get("idlist", [])
-            
+
+            result = response.json().get("esearchresult", {})
+
+            if result.get("ERROR"):
+                logger.error(f"PubMed rejected the query: {result['ERROR']}")
+                return None
+
+            pmids = result.get("idlist", [])
+
+            try:
+                total = int(result.get("count", len(pmids)))
+            except (TypeError, ValueError):
+                total = len(pmids)
+            if total > len(pmids):
+                logger.warning(
+                    f"PubMed: {total} papers match, but esearch returns at most "
+                    f"{self.MAX_RETMAX} per request — retrieving {len(pmids)}. Narrow the "
+                    f"query or the year range to reach the rest."
+                )
+
             return pmids
-            
+
+        except requests.HTTPError as e:
+            resp = e.response
+            code = resp.status_code if resp is not None else "?"
+            hint = ""
+            if code == 414:
+                hint = (" — the query is too long to fit in a URL. NCBI rejects roughly "
+                        "4000+ characters once URL-encoded; shorten the query.")
+            elif code == 429:
+                hint = (" — NCBI rate-limited this IP. Set PUBMED_API_KEY in .env to raise "
+                        "the limit from 3 to 10 requests/second.")
+            logger.error(f"PubMed search failed: HTTP {code}{hint}")
+            return None
         except Exception as e:
-            logger.error(f"PubMed search failed: {e}")
-            return []
+            logger.error(f"PubMed search failed: {type(e).__name__}: {e}")
+            return None
     
     def _fetch_details(self, pmids: List[str]) -> List[Paper]:
         """

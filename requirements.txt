@@ -14,6 +14,9 @@ PyYAML>=6.0            # reads config.yaml (central run configuration)
 bibtexparser>=1.4.0
 rispy>=0.7.0
 
+# PDF full-text extraction (required for scripts/extract_atlases.py)
+pymupdf>=1.24.0
+
 # Optional dependencies for specific sources
 # Google Scholar (optional - install if using Scholar search)
 scholarly>=1.7.0

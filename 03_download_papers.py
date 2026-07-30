@@ -19,6 +19,14 @@ from dotenv import load_dotenv
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
+# This script's status lines use ✓/⚠/❌. On Windows stdout defaults to cp1252,
+# which can't encode them - printing one raises UnicodeEncodeError and kills the
+# run. Ask for UTF-8 and degrade instead of crashing if the console refuses.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 from src.searchers.paper_downloader import PaperDownloader
 from src.utils import save_failed_downloads
 from src.settings import load_settings
@@ -40,6 +48,89 @@ USE_SCIHUB = CONFIG.get("use_scihub", False)
 USE_ZOTERO = CONFIG.get("use_zotero", True)
 MAX_WORKERS = CONFIG.get("max_workers", 4)
 USE_BROWSER = CONFIG.get("use_browser", False)
+
+
+def check_zotero_server():
+    """
+    Tell the user where the Zotero translation server stands, and offer to fix it.
+
+    Running this step by step is the path where a fresh clone quietly gets the
+    degraded resolver chain: the submodule needs a one-time setup that nothing
+    else performs. It is optional (Zotero's hosted OA index needs no local
+    server), so every branch here continues the run either way.
+
+    Skipped when main.py already ran preflight, so we don't ask twice.
+    """
+    if os.getenv("REVIEW_BUDDY_PREFLIGHT") == "1":
+        return
+
+    from src import zotero_setup as zs
+
+    host, port = zs.parse_host_port(os.getenv("ZOTERO_TRANSLATION_SERVER"))
+    if zs.port_open(host, port):
+        print(f"Zotero translation server: running ({host}:{port})")
+        return
+
+    missing = zs.setup_state()
+    print("⚠ Zotero translation server is not running.")
+    print()
+    print("  It extracts PDF links from publisher landing pages and measurably")
+    print("  improves the hit rate. Downloads still work without it — Zotero's")
+    print("  hosted open-access index needs no local server — but you'll get fewer PDFs.")
+    print()
+
+    if missing:
+        print(f"  It has never been set up here: {'; '.join(missing)}.")
+        if not zs.node_available():
+            print("  Setup needs Node.js, which isn't installed: https://nodejs.org")
+            print("  Then run: python scripts/setup_zotero.py")
+            print()
+            print("Continuing without it...")
+            print()
+            return
+        print("  Setup is one-time and takes a few minutes (npm install).")
+        try:
+            ans = input("  Run scripts/setup_zotero.py now? [y/N] ")
+        except EOFError:
+            ans = ""  # non-interactive (CI, piped stdin) -> never block the run
+        if ans.strip().lower() not in ("y", "yes"):
+            print()
+            print("  Continuing without it. To enable it later:")
+            for line in zs.SETUP_HINT.splitlines():
+                print(f"    {line}")
+            print()
+            return
+        if not zs.run_setup():
+            print()
+            print("  Setup failed — continuing without it.")
+            print("  Run it manually to see why: python scripts/setup_zotero.py")
+            print()
+            return
+
+    # Set up but not running (or just set up now) — offer to start it.
+    if not zs.SERVER_JS.exists() or not zs.node_available():
+        print("  To enable it:")
+        for line in zs.SETUP_HINT.splitlines():
+            print(f"    {line}")
+        print()
+        return
+
+    try:
+        ans = input("  Start it now (node src/server.js)? [Y/n] ")
+    except EOFError:
+        ans = "n"
+    if ans.strip().lower() in ("", "y", "yes"):
+        print("  Starting Zotero translation server...")
+        if zs.start_server(host, port):
+            print(f"  ✓ Running on {host}:{port}")
+            print()
+            return
+        print("  Server did not come up in 30s — continuing without it.")
+    else:
+        print("  Continuing without it. Start it yourself with:")
+        print("    cd vendor/translation-server && node src/server.js")
+    print()
+
 
 def main():
     """Main execution function"""
@@ -75,7 +166,10 @@ def main():
     print(f"Sci-Hub enabled: {USE_SCIHUB}")
     print(f"Browser fetcher enabled: {USE_BROWSER}")
     print()
-    
+
+    if USE_ZOTERO:
+        check_zotero_server()
+
     # Create downloader
     print("=" * 80)
     print("STARTING DOWNLOAD...")

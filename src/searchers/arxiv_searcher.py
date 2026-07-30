@@ -63,12 +63,19 @@ class ArxivSearcher:
         # arXiv API query format: search in all fields
         arxiv_query = f"all:{arxiv_safe_query}"
         
-        # Add date filtering to the query if year range is specified
-        # arXiv uses submittedDate with format [YYYYMMDDTTTT TO YYYYMMDDTTTT]
+        # Add date filtering to the query if year range is specified.
+        # arXiv uses submittedDate with format [YYYYMMDDTTTT TO YYYYMMDDTTTT].
+        #
+        # The user query MUST be wrapped in its own parentheses first. Appended
+        # bare, arXiv's parser binds " AND submittedDate:[...]" to the trailing
+        # ANDNOT clause and silently drops the date restriction: the search then
+        # returns off-topic papers from 1991 onwards, every one of which the year
+        # filter below discards, so the source ends on 0 papers after paging
+        # through hundreds of batches. Parenthesising keeps the restriction.
         if year_from or year_to:
             from_date = f"{year_from or 1900}01010000"
             to_date = f"{year_to or 2099}12312359"
-            arxiv_query += f" AND submittedDate:[{from_date} TO {to_date}]"
+            arxiv_query = f"({arxiv_query}) AND submittedDate:[{from_date} TO {to_date}]"
             logger.debug(f"arXiv: Added date filter to query: submittedDate:[{from_date} TO {to_date}]")
         
         logger.info(f"Searching arXiv with query: {arxiv_query[:200]}...")  # Truncate for readability
@@ -86,7 +93,8 @@ class ArxivSearcher:
         start = 0
         batch_size = 100  # arXiv recommends max 100 per request
         progress = None
-        
+        unusable_batches = 0  # consecutive batches entirely outside the year range
+
         while len(papers) < self.max_results:
             try:
                 # Make request
@@ -173,7 +181,25 @@ class ArxivSearcher:
                 
                 if filtered_out_count > 0:
                     logger.info(f"arXiv batch: fetched {fetched_count}, accepted {fetched_count - filtered_out_count}, filtered out {filtered_out_count}")
-                
+
+                # A full batch outside the year range means the submittedDate
+                # restriction in the query isn't binding (arXiv ignores it for
+                # some query shapes). Paging on would spend hundreds of requests
+                # to return nothing, so stop and say why.
+                if (year_from or year_to) and fetched_count and filtered_out_count == fetched_count:
+                    unusable_batches += 1
+                    if unusable_batches >= 3:
+                        logger.warning(
+                            "arXiv: every result in the last 3 batches fell outside "
+                            f"{year_from or 'any'}-{year_to or 'any'}, so the query's date "
+                            "restriction is being ignored by arXiv. Stopping instead of paging "
+                            "further; simplify the query (arXiv's parser mishandles deeply "
+                            "nested boolean queries)."
+                        )
+                        break
+                else:
+                    unusable_batches = 0
+
                 # If we're getting too many papers beyond year_to and sorting ascending, we can stop
                 # This happens when sorting ascending and we've moved past the desired range
                 if year_to and sort_order == 'descending' and papers_too_new > batch_size * 0.8:
